@@ -601,10 +601,31 @@ final class WatchPopup {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
 
+    /** Poster cards (EXTRAS ! Continue watching style) for this render. */
+    private boolean posters;
+
+    /** Lowest the poster row may reach: above a bottom dock, else near the screen's bottom. */
+    private int posterBottom() {
+        if (home.dockPos == Extras.DOCK_BOTTOM || home.dockPos < 0) {
+            int hh = headerTextH > 0 ? headerTextH : dp(16);
+            return home.shelfTopPx + hh + dp(SceneHome.SHELF_HEADER_GAP_DP) + dp(SceneHome.SHELF_CARD_H_DP);
+        }
+        return host.screenH - dp(26);
+    }
+
     private void renderItems(String header) {
+        posters = Extras.isCwPosters(host);
         // Same card size and spacing as the Keep Watching shelf.
         int cardW = dp(SceneHome.SHELF_CARD_W_DP), cardH = dp(SceneHome.SHELF_CARD_H_DP),
                 gap = dp(SceneHome.SHELF_CARD_GAP_DP);
+        if (posters) {
+            // Tall 2:3 posters between the clock and the dock / screen bottom.
+            int top = home.shelfTopPx - dp(70);  // just under the clock
+            int avail = posterBottom() - top - dp(22) - 2 * dp(SceneHome.SHELF_HEADER_GAP_DP);
+            cardH = Math.max(dp(110), Math.min(dp(200), avail));
+            cardW = Math.round(cardH * 2f / 3f);
+            gap = dp(10);
+        }
         // Room around the cards so the focus lift/scale isn't clipped by the scroller. Equal to
         // the shelf's header-to-cards gap, so header and cards land exactly where the shelf's do.
         int pad = dp(SceneHome.SHELF_HEADER_GAP_DP);
@@ -623,9 +644,11 @@ final class WatchPopup {
         String appName = host.appLabel(pkg);
         for (int i = 0; i < items.size(); i++) {
             WatchCloud.Item it = items.get(i);
-            View card = home.watchCard(cardData(it, pkg, appName), cardW, cardH, (v, has) -> {
+            View.OnFocusChangeListener fl = (v, has) -> {
                 if (!has) overlay.post(this::hideIfFocusLeft);
-            });
+            };
+            View card = posters ? home.posterCard(cardData(it, pkg, appName), cardW, cardH, fl)
+                    : home.watchCard(cardData(it, pkg, appName), cardW, cardH, fl);
             card.setId(View.generateViewId());
             card.setOnClickListener(v -> open(it));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(cardW, cardH);
@@ -635,8 +658,8 @@ final class WatchPopup {
 
             ImageView thumb = card.findViewWithTag(SceneHome.WATCH_THUMB);
             if (thumb != null) {
-                thumbViews.put(it.contentId, thumb);
-                if (thumbs.get(it.contentId) == null) loadThumb(it);
+                thumbViews.put(thumbKey(it), thumb);
+                if (thumbs.get(thumbKey(it)) == null) loadThumb(it);
             }
         }
         // Three cards fit across the screen like the shelf; more scroll sideways as you move.
@@ -662,7 +685,7 @@ final class WatchPopup {
                 ? (it.isSeries() ? I18n.s(host, "Series", "Dizi") : I18n.s(host, "Movie", "Film")) : it.title;
         d.subtitle = subtitle(it);
         d.progress = (float) Math.max(0.0, Math.min(1.0, it.fraction()));
-        d.thumb = thumbs.get(it.contentId);
+        d.thumb = thumbs.get(thumbKey(it));
         return d;
     }
 
@@ -687,14 +710,24 @@ final class WatchPopup {
     }
 
     /** 16:9 art like the shelf: the title's backdrop when it has an IMDb id, else its poster. */
+    /** Posters and wide thumbnails are different images, so they are cached separately. */
+    private String thumbKey(WatchCloud.Item it) {
+        return (posters ? "p:" : "") + it.contentId;
+    }
+
     private void loadThumb(WatchCloud.Item it) {
         String base = it.baseId();
+        final boolean wantPoster = posters;
         final String backdrop = base.startsWith("tt")
-                ? "https://images.metahub.space/background/medium/" + base + "/img" : null;
-        final String poster = it.poster, id = it.contentId;
+                ? "https://images.metahub.space/" + (wantPoster ? "poster/small/" : "background/medium/") + base + "/img" : null;
+        final String poster = it.poster, id = thumbKey(it);
         exec.execute(() -> {
-            Bitmap b = backdrop != null ? Suggestions.image(host, backdrop, "w300", 240) : null;
-            if (b == null && poster != null && !poster.isEmpty()) b = Suggestions.image(host, poster, "w300", 240);
+            // Small decode (RAM): posters ~200 px wide are plenty for a ~130 px card.
+            int maxW = wantPoster ? 200 : 240;
+            Bitmap b = null;
+            if (wantPoster && poster != null && !poster.isEmpty()) b = Suggestions.image(host, poster, "w185", maxW);
+            if (b == null && backdrop != null) b = Suggestions.image(host, backdrop, "w300", maxW);
+            if (b == null && poster != null && !poster.isEmpty()) b = Suggestions.image(host, poster, "w300", maxW);
             if (b == null) return;
             final Bitmap bmp = b;
             host.handler.post(() -> {
@@ -724,8 +757,8 @@ final class WatchPopup {
     private void position() {
         int any = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
         panel.measure(any, any);
-        int shelfCardsBottom = home.shelfTopPx + headerTextH
-                + dp(SceneHome.SHELF_HEADER_GAP_DP) + dp(SceneHome.SHELF_CARD_H_DP);
+        int shelfCardsBottom = posters && !cards.isEmpty() ? posterBottom()
+                : home.shelfTopPx + headerTextH + dp(SceneHome.SHELF_HEADER_GAP_DP) + dp(SceneHome.SHELF_CARD_H_DP);
         int contentBottom = panel.getMeasuredHeight() - rowInset;  // the card row has rowInset below it
         // Placed with layout margins (not translation) so translationY stays free for the
         // show/hide slide animation and can never push the popup to the top of the screen.

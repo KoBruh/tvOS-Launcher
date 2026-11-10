@@ -1048,6 +1048,88 @@ final class SceneHome {
      * The Keep Watching glass card: thumbnail, app name, title, subtitle, progress bar.
      * WatchPopup uses it too, so both rows look the same. Callers set click handling.
      */
+    /**
+     * Portrait poster card (EXTRAS ! Continue watching style: Posters): artwork fills the card,
+     * title / episode / progress sit on a dark scrim at the bottom.
+     */
+    View posterCard(WatchCardData d, int cardW, int cardH, View.OnFocusChangeListener onFocus) {
+        FrameLayout card = new FrameLayout(host) {
+            @Override public boolean hasOverlappingRendering() { return false; }
+        };
+        card.setFocusable(true);
+        card.setClickable(true);
+        float r = dp(11);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(r);
+        bg.setColor(0xFF1A1C22);
+        card.setBackground(bg);
+        card.setOutlineProvider(host.roundedOutline(new float[]{r}));
+        card.setClipToOutline(true);
+
+        ImageView poster = new ImageView(host);
+        poster.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        poster.setTag(WATCH_THUMB);
+        if (d.thumb != null) poster.setImageBitmap(d.thumb);
+        card.addView(poster, host.match());
+
+        View scrim = new View(host);
+        scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0x00000000, 0xA6000000, 0xF0000000}));
+        card.addView(scrim, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                Math.round(cardH * 0.52f), Gravity.BOTTOM));
+
+        LinearLayout body = new LinearLayout(host);
+        body.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(7);
+        body.setPadding(pad, 0, pad, dp(7));
+        TextView titleTxt = new TextView(host);
+        Ui.textSize(titleTxt, 10f);
+        titleTxt.setTypeface(Ui.font(host, "semibold"));
+        titleTxt.setTextColor(0xFFF4F4F6);
+        titleTxt.setMaxLines(2);
+        titleTxt.setEllipsize(TextUtils.TruncateAt.END);
+        titleTxt.setText(d.title);
+        body.addView(titleTxt);
+        TextView subTxt = new TextView(host);
+        Ui.textSize(subTxt, 8.2f);
+        subTxt.setTypeface(Ui.font(host, "regular"));
+        subTxt.setTextColor(0xC7F4F4F6);
+        subTxt.setSingleLine(true);
+        subTxt.setEllipsize(TextUtils.TruncateAt.END);
+        subTxt.setText(d.subtitle);
+        body.addView(subTxt);
+        FrameLayout barTrack = new FrameLayout(host);
+        GradientDrawable trBg = new GradientDrawable();
+        trBg.setCornerRadius(dp(1.5f));
+        trBg.setColor(0x3DFFFFFF);
+        barTrack.setBackground(trBg);
+        View barFill = new View(host);
+        GradientDrawable flBg = new GradientDrawable();
+        flBg.setCornerRadius(dp(1.5f));
+        flBg.setColor(0xEBFFFFFF);
+        barFill.setBackground(flBg);
+        int maxBarW = cardW - 2 * pad;
+        int fillW = Math.max(dp(4), Math.round(maxBarW * Math.max(0.04f, Math.min(1f, d.progress))));
+        barTrack.addView(barFill, new FrameLayout.LayoutParams(fillW, ViewGroup.LayoutParams.MATCH_PARENT));
+        LinearLayout.LayoutParams prlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2.5f));
+        prlp.topMargin = dp(4);
+        body.addView(barTrack, prlp);
+        card.addView(body, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM));
+
+        GradientDrawable focusRing = new GradientDrawable();
+        focusRing.setCornerRadius(r);
+        focusRing.setColor(Color.TRANSPARENT);
+        focusRing.setStroke(dp(2), Color.WHITE);
+        card.setOnFocusChangeListener((v, has) -> {
+            v.setForeground(has ? focusRing : null);
+            v.animate().scaleX(has ? 1.06f : 1f).scaleY(has ? 1.06f : 1f)
+                    .setDuration(180).setInterpolator(MainActivity.LIFT).start();
+            if (onFocus != null) onFocus.onFocusChange(v, has);
+        });
+        return card;
+    }
+
     View watchCard(WatchCardData d, int cardW, int cardH, View.OnFocusChangeListener onFocus) {
         LinearLayout card = new LinearLayout(host) {
             @Override public boolean hasOverlappingRendering() { return false; }
@@ -1618,6 +1700,8 @@ final class SceneHome {
         shelfRightPx = dp(SHELF_LEFT_DP) + insetR;
         shelfTopPx = dp(SHELF_TOP_DP) + insetT;
         sceneView.setDockInsets(insetL, insetT, insetR);
+        // Side dock: keep the shelf's cards inside the shelf so they never slide under the dock.
+        if (shelfScroll != null) shelfScroll.setClipChildren(vertical);
         boolean widthChanged = HomeDashboard.sceneWidthInsetPx != insetL + insetR;
         HomeDashboard.sceneWidthInsetPx = insetL + insetR;
         if (widthChanged && isDashboardShowing()) populateDashboard(true);

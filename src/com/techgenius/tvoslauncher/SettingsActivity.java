@@ -872,6 +872,13 @@ public class SettingsActivity extends Activity {
         row(en("Dock position"),
                 () -> Extras.dockPositionLabel(this, Extras.getDockPosition(this)),
                 () -> openSubMenu("extras_dock_pos"));
+        section(en("CONTINUE WATCHING"));
+        row(en("Stremio / Nuvio card style"),
+                () -> Extras.isCwPosters(this) ? en("Posters") : en("Wide cards"),
+                () -> {
+                    Extras.setCwPosters(this, !Extras.isCwPosters(this));
+                    refreshAll();
+                });
         section(en("REMOTE"));
         row(en("Netflix button opens Stremio"),
                 () -> Extras.isNetflixRedirectOn(this) ? en("On") : en("Off"),

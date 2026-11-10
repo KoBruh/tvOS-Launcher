@@ -69,6 +69,19 @@ public final class Extras {
         }
     }
 
+    // ------------------------------------------------------------ Continue watching style
+
+    private static final String K_CW_POSTERS = "cw_posters";
+
+    /** Stremio/Nuvio continue-watching row as tall poster cards (default) instead of wide bars. */
+    public static boolean isCwPosters(Context c) {
+        return c == null || prefs(c).getBoolean(K_CW_POSTERS, true);
+    }
+
+    public static void setCwPosters(Context c, boolean on) {
+        prefs(c).edit().putBoolean(K_CW_POSTERS, on).apply();
+    }
+
     // ------------------------------------------------------------ Netflix button → Stremio
 
     public static boolean isNetflixRedirectOn(Context c) {
