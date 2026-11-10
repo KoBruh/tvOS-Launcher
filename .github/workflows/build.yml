@@ -1,0 +1,80 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-release
+  cancel-in-progress: false
+
+env:
+  BASE_VERSION: "2.1.5"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # JDK 17 is required: d8 34.0.0 crashes on classes compiled by JDK 21.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "build-tools;34.0.0 platforms;android-34"
+
+      - name: Check signing secrets
+        env:
+          KS_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.RELEASE_KEYSTORE_PASS }}
+          KS_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+        run: |
+          missing=""
+          [ -n "$KS_B64" ]   || missing="$missing RELEASE_KEYSTORE_B64"
+          [ -n "$KS_PASS" ]  || missing="$missing RELEASE_KEYSTORE_PASS"
+          [ -n "$KS_ALIAS" ] || missing="$missing RELEASE_KEY_ALIAS"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repo secrets:$missing (Settings > Secrets and variables > Actions). Refusing to publish an APK signed with a throwaway key."
+            exit 1
+          fi
+          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Build
+        env:
+          RELEASE_KEYSTORE: ${{ runner.temp }}/release.jks
+          RELEASE_KEYSTORE_PASS: ${{ secrets.RELEASE_KEYSTORE_PASS }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          VERSION_CODE: ${{ 1000 + github.run_number }}
+          VERSION_NAME: ${{ env.BASE_VERSION }}-kb.${{ github.run_number }}
+        run: |
+          bash build.sh
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs build/tvos-home.apk | head -3
+          rm -f "$RELEASE_KEYSTORE"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tvos-home-${{ github.run_number }}
+          path: build/tvos-home.apk
+
+      # Tag is "v<version>" because the in-app updater compares tag digits with the installed
+      # versionName (e.g. v2.1.5-kb.12 vs 2.1.5-kb.11).
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.BASE_VERSION }}-kb.${{ github.run_number }}
+          name: ${{ env.BASE_VERSION }}-kb.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          make_latest: "true"
+          body: |
+            Build ${{ github.run_number }} from `${{ github.ref_name }}` @ ${{ github.sha }}
+
+            ${{ github.event.head_commit.message }}
+          files: build/tvos-home.apk

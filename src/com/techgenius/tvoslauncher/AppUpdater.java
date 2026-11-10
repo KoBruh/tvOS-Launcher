@@ -31,14 +31,14 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Checks GitHub Releases (https://api.github.com/repos/techgenius1/tvOS-Launcher/releases/latest)
+ * Checks GitHub Releases (https://api.github.com/repos/KoBruh/tvOS-Launcher/releases/latest)
  * and downloads/installs the latest APK either automatically or manually from Settings -> Updates.
  */
 public final class AppUpdater {
     public static final String GITHUB_API_LATEST =
-            "https://api.github.com/repos/techgenius1/tvOS-Launcher/releases/latest";
+            "https://api.github.com/repos/KoBruh/tvOS-Launcher/releases/latest";
     public static final String GITHUB_FALLBACK_APK =
-            "https://github.com/techgenius1/tvOS-Launcher/releases/latest/download/tvos-home.apk";
+            "https://github.com/KoBruh/tvOS-Launcher/releases/latest/download/tvos-home.apk";
 
     private static final String PREF_NAME = "updates";
     private static final String KEY_AUTO_UPDATE = "auto_update";
