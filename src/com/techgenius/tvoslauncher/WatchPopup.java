@@ -499,6 +499,7 @@ final class WatchPopup {
             panel.setFocusable(false);
         }
         position();
+        if (visible) home.updateShelfDim();  // e.g. titles just loaded: fade the clock for big posters
     }
 
     /**
@@ -604,13 +605,35 @@ final class WatchPopup {
     /** Poster cards (EXTRAS ! Continue watching style) for this render. */
     private boolean posters;
 
-    /** Lowest the poster row may reach: above a bottom dock, else near the screen's bottom. */
+    /** Top/Bottom dock: big posters take the clock's space (it fades out meanwhile). */
+    private boolean bigPosters() {
+        return posters && !Extras.isDockVertical(home.dockPos);
+    }
+
+    /** Whether the open row is big posters that use the clock's space. */
+    boolean coversClock() {
+        return visible && bigPosters() && !cards.isEmpty();
+    }
+
+    /** Lowest the poster row may reach: above a bottom dock (and its name label), else near the screen's bottom. */
     private int posterBottom() {
         if (home.dockPos == Extras.DOCK_BOTTOM || home.dockPos < 0) {
-            int hh = headerTextH > 0 ? headerTextH : dp(16);
-            return home.shelfTopPx + hh + dp(SceneHome.SHELF_HEADER_GAP_DP) + dp(SceneHome.SHELF_CARD_H_DP);
+            int thick = home.dockThicknessPx > 0 ? home.dockThicknessPx : dp(74);
+            return host.screenH - dp(14) - thick - dp(40);
         }
         return host.screenH - dp(26);
+    }
+
+    /** Highest the poster row may reach. */
+    private int posterTop() {
+        if (home.dockPos == Extras.DOCK_TOP) {
+            int thick = home.dockThicknessPx > 0 ? home.dockThicknessPx : dp(74);
+            return dp(14) + thick + dp(40);  // under the top dock and its name label
+        }
+        if (home.dockPos == Extras.DOCK_BOTTOM || home.dockPos < 0) {
+            return dp(90);  // under the top-right buttons
+        }
+        return home.shelfTopPx - dp(70);  // side dock: just under the clock, which stays
     }
 
     private void renderItems(String header) {
@@ -620,9 +643,8 @@ final class WatchPopup {
                 gap = dp(SceneHome.SHELF_CARD_GAP_DP);
         if (posters) {
             // Tall 2:3 posters between the clock and the dock / screen bottom.
-            int top = home.shelfTopPx - dp(70);  // just under the clock
-            int avail = posterBottom() - top - dp(22) - 2 * dp(SceneHome.SHELF_HEADER_GAP_DP);
-            cardH = Math.max(dp(110), Math.min(dp(200), avail));
+            int avail = posterBottom() - posterTop() - dp(22) - 2 * dp(SceneHome.SHELF_HEADER_GAP_DP);
+            cardH = Math.max(dp(110), Math.min(bigPosters() ? dp(230) : dp(200), avail));
             cardW = Math.round(cardH * 2f / 3f);
             gap = dp(10);
         }

@@ -924,6 +924,23 @@ public final class Scenes {
         /** Room kept free for the home dock (EXTRAS ! dock position), in px. */
         private int dockInsetL, dockInsetT, dockInsetR;
 
+        /** Clock + greeting + date opacity; faded out while big posters use that space. */
+        private float textFade = 1f;
+        private ValueAnimator textFadeAnim;
+
+        public void fadeClockText(boolean visible) {
+            float target = visible ? 1f : 0f;
+            if (textFadeAnim != null) textFadeAnim.cancel();
+            if (Math.abs(textFade - target) < 0.01f) return;
+            textFadeAnim = ValueAnimator.ofFloat(textFade, target);
+            textFadeAnim.setDuration(visible ? 220 : 160);
+            textFadeAnim.addUpdateListener(a -> {
+                textFade = (float) a.getAnimatedValue();
+                invalidate();
+            });
+            textFadeAnim.start();
+        }
+
         public void setDockInsets(int left, int top, int right) {
             if (left == dockInsetL && top == dockInsetT && right == dockInsetR) return;
             dockInsetL = left;
@@ -1631,6 +1648,13 @@ public final class Scenes {
             }
 
             // 3. Giant Glass Clock (iPhone Duo / Rounded / Tall Glass)
+            boolean fadeable = !lockScreenMode && !classicClockOnlyMode;
+            if (fadeable && textFade <= 0.01f) {
+                if (layerSave) canvas.restore();
+                return;
+            }
+            int textSave = (fadeable && textFade < 0.99f)
+                    ? canvas.saveLayerAlpha(0, 0, w, h, Math.round(255 * textFade)) : -1;
             float u = Math.min(w / 960f, h / 540f);
             Context ctx = getContext();
             String style = getClockStyle(ctx);
@@ -1873,6 +1897,7 @@ public final class Scenes {
             }
             dateX = dockShiftX(dateX, dateW, w);
             canvas.drawText(fullHeader, dateX, dateBaselineY, datePaint);
+            if (textSave >= 0) canvas.restoreToCount(textSave);
 
             if (layerSave) {
                 canvas.restore();

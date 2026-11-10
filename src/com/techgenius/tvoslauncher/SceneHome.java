@@ -115,6 +115,8 @@ final class SceneHome {
     private int tooltipSide = 0;
     /** Keep Watching shelf / dashboard / Watch popup placement, shifted away from the dock. */
     int shelfLeftPx, shelfRightPx, shelfTopPx;
+    /** Collapsed dock depth (height for Top/Bottom, width for Left/Right). */
+    int dockThicknessPx;
     int currentMaxSingleRowApps = 10;
     ObjectAnimator moveWiggle;
     FrameLayout sheetLayer;
@@ -1332,8 +1334,12 @@ final class SceneHome {
      * Checks all popups, so moving from one app's tile straight to another's keeps it hidden.
      */
     void updateShelfDim() {
-        boolean dim = false;
-        for (WatchPopup p : watchPopups) dim |= p.isShowing();
+        boolean dim = false, coverClock = false;
+        for (WatchPopup p : watchPopups) {
+            dim |= p.isShowing();
+            coverClock |= p.coversClock();
+        }
+        sceneView.fadeClockText(!coverClock);
         float a = dim ? 0f : 1f;
         if (shelfHeader != null) {
             shelfHeader.animate().cancel();
@@ -1635,6 +1641,7 @@ final class SceneHome {
         boolean vertical = Extras.isDockVertical(pos);
         int ptrH = dp(5f);
         int shift = thicknessPx + dp(14) + dp(6);
+        dockThicknessPx = thicknessPx;
 
         if (pos != dockPos) {
             dockPos = pos;
