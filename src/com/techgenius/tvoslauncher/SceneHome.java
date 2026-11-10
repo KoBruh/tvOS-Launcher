@@ -169,6 +169,20 @@ final class SceneHome {
         stremioCloud = new StremioCloud(host);
         watchPopups.add(new WatchPopup(this, nuvioCloud));
         watchPopups.add(new WatchPopup(this, stremioCloud));
+        centre = new StremioCentre(this);
+    }
+
+    /** EXTRAS ! Stremio Centre panel (hidden unless turned on). */
+    final StremioCentre centre;
+
+    /** Stremio Centre is on: the other home widgets are hidden. */
+    boolean centreOn() {
+        return centre != null && centre.isActive();
+    }
+
+    /** Dock popups are off while the Centre shows the rows (still allowed to sign in to Stremio). */
+    private boolean popupsSuppressed() {
+        return centre != null && centre.replacesWidgets();
     }
 
     /** The continue-watching popup for a dock tile's app, or null when it has none. */
@@ -184,6 +198,7 @@ final class SceneHome {
     }
 
     void onWatchPopupsResume() {
+        if (centre != null) centre.onResume();
         // Home pressed / launcher resumed: rows reappear in place, without the entrance slide.
         suppressCwAnimUntil = android.os.SystemClock.uptimeMillis() + 700L;
         for (WatchPopup p : watchPopups) p.onLauncherResume();
@@ -539,7 +554,7 @@ final class SceneHome {
     }
 
     void syncDashboardIfFocusChanged() {
-        if (!HomeDashboard.isEnabled(host) || moreExpanded || moveDockIdx >= 0 || sheetLayer != null) {
+        if (!HomeDashboard.isEnabled(host) || moreExpanded || moveDockIdx >= 0 || sheetLayer != null || centreOn()) {
             hideDashboard();
             return;
         }
@@ -555,7 +570,7 @@ final class SceneHome {
     }
 
     void refreshDashboard() {
-        if (!HomeDashboard.isEnabled(host)) {
+        if (!HomeDashboard.isEnabled(host) || centreOn()) {
             hideDashboardImmediate();
             return;
         }
@@ -567,7 +582,7 @@ final class SceneHome {
     }
 
     void showDashboard() {
-        if (dashboardBox == null || !HomeDashboard.isEnabled(host) || moreExpanded || moveDockIdx >= 0 || sheetLayer != null) {
+        if (dashboardBox == null || !HomeDashboard.isEnabled(host) || moreExpanded || moveDockIdx >= 0 || sheetLayer != null || centreOn()) {
             hideDashboard();
             return;
         }
@@ -1339,7 +1354,9 @@ final class SceneHome {
             dim |= p.isShowing();
             coverClock |= p.coversClock();
         }
-        sceneView.fadeClockText(!coverClock);
+        sceneView.fadeClockText(!coverClock && !centreOn());
+        // Signed in to Stremio from the Centre's QR prompt: fill the panel.
+        if (centreOn() && stremioCloud.isSignedIn() && centre != null) centre.onSignedInMaybe();
         float a = dim ? 0f : 1f;
         if (shelfHeader != null) {
             shelfHeader.animate().cancel();
@@ -1737,6 +1754,20 @@ final class SceneHome {
         }
     }
 
+    /** Shows/hides the Stremio Centre panel and the widgets it replaces. */
+    private void syncCentre() {
+        if (centre == null) return;
+        centre.sync();
+        boolean on = centreOn();
+        if (topRightRow != null) topRightRow.setVisibility(on ? View.GONE : View.VISIBLE);
+        if (on) {
+            hideShelfImmediate();
+            hideDashboardImmediate();
+            if (popupsSuppressed()) for (WatchPopup p : watchPopups) p.forceHide();
+        }
+        sceneView.fadeClockText(!on);
+    }
+
     void rebuildDock() {
         if (dockBox == null) return;
         int savedFocusIdx = focusedDockIdx;
@@ -1789,6 +1820,21 @@ final class SceneHome {
             if (o.pkg == null || !seenPkgs.contains(o.pkg)) {
                 otherPool.add(o);
                 if (o.pkg != null) seenPkgs.add(o.pkg);
+            }
+        }
+
+        // EXTRAS ! single-app dock: only the chosen app (plus the Settings gear). If that app isn't
+        // installed the normal dock is kept, so nothing can ever be locked away.
+        if (Extras.isSingleAppDock(host)) {
+            String only = Extras.getSingleAppPkg(host);
+            MainActivity.AppEntry pick = null;
+            for (MainActivity.AppEntry e : homePool) if (only.equals(e.pkg)) { pick = e; break; }
+            if (pick == null) for (MainActivity.AppEntry e : otherPool) if (only.equals(e.pkg)) { pick = e; break; }
+            if (pick != null) {
+                homePool.clear();
+                homePool.add(pick);
+                otherPool.clear();
+                moreExpanded = false;
             }
         }
 
@@ -1866,6 +1912,7 @@ final class SceneHome {
             dockTiles.add(tile);
         }
         focusedDockIdx = Math.max(0, Math.min(savedFocusIdx, dockTiles.size() - 1));
+        syncCentre();
         dockBox.requestLayout();
         dockBox.invalidate();
         if (dockContainer != null) {
@@ -1939,9 +1986,9 @@ final class SceneHome {
         focusRing.setStroke(dp(2.2f), Color.WHITE);
 
         tile.setOnFocusChangeListener((v, has) -> {
-            WatchPopup popup = isGear || isMore ? null : watchPopupFor(a.pkg);
+            WatchPopup popup = isGear || isMore || popupsSuppressed() ? null : watchPopupFor(a.pkg);
             if (popup != null) popup.onTileFocus(v, a.pkg, has && moveDockIdx < 0);
-            onDockTileFocusForShelf(v, a, isGear, isMore, popup, has);
+            if (!centreOn()) onDockTileFocusForShelf(v, a, isGear, isMore, popup, has);
             v.setPivotX(v.getWidth() > 0 ? v.getWidth() / 2f : size / 2f);
             v.setPivotY(v.getHeight() > 0 ? v.getHeight() / 2f : size / 2f);
             v.setForeground(has ? focusRing : null);
@@ -2189,9 +2236,9 @@ final class SceneHome {
             String pkg = entry.pkg;
             boolean isGear = GEAR_KEY.equals(entry.key);
             boolean isMore = MORE_KEY.equals(entry.key);
-            WatchPopup popup = isGear || isMore ? null : watchPopupFor(pkg);
+            WatchPopup popup = isGear || isMore || popupsSuppressed() ? null : watchPopupFor(pkg);
             if (popup != null) popup.onTileFocus(tile, pkg, true);
-            onDockTileFocusForShelf(tile, entry, isGear, isMore, popup, true);
+            if (!centreOn()) onDockTileFocusForShelf(tile, entry, isGear, isMore, popup, true);
         }
     }
 
@@ -2884,6 +2931,11 @@ final class SceneHome {
             return true;
         }
 
+        // Stremio Centre panel
+        if (centre != null && centre.owns(f)) {
+            if (centre.onKey(k, down, f)) return true;
+        }
+
         // Top Bar navigation
         boolean whoVisible = whoBar != null && whoBar.getVisibility() == View.VISIBLE;
         boolean wxVisible = weatherBtn != null && weatherBtn.getVisibility() == View.VISIBLE;
@@ -3030,6 +3082,9 @@ final class SceneHome {
      * first, then the dashboard, the Keep Watching shelf, and finally the top-right buttons.
      */
     private void leaveDock(View f, int dIdx) {
+        if (centre != null && centre.isActive() && centre.focusEntry()) {
+            return;
+        }
         if (focusWatchPopupRow(f)) {
             // Moved into the continue-watching popup next to the tile.
         } else if (isDashboardShowing() && !dashboardCards.isEmpty()) {

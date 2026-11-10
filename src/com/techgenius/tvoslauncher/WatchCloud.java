@@ -156,7 +156,12 @@ abstract class WatchCloud {
 
     /** Last successful result, so the popup has something to show instantly after a restart. */
     List<Item> loadCache(int profile) {
-        String s = prefs.getString(cwKey(profile), "");
+        return loadCacheKey(cwKey(profile));
+    }
+
+    /** Cached item list under any prefs key (Stremio Centre's library row uses its own). */
+    List<Item> loadCacheKey(String key) {
+        String s = prefs.getString(key, "");
         if (s.isEmpty()) return null;
         try {
             JSONArray a = new JSONArray(s);
@@ -184,6 +189,10 @@ abstract class WatchCloud {
     }
 
     void saveCache(int profile, List<Item> items) {
+        saveCacheKey(cwKey(profile), items);
+    }
+
+    void saveCacheKey(String key, List<Item> items) {
         try {
             JSONArray a = new JSONArray();
             for (Item it : items) {
@@ -192,7 +201,7 @@ abstract class WatchCloud {
                         .put("pos", it.position).put("dur", it.duration).put("at", it.lastWatched)
                         .put("next", it.upNext));
             }
-            prefs.edit().putString(cwKey(profile), a.toString()).apply();
+            prefs.edit().putString(key, a.toString()).apply();
         } catch (Exception ignored) {
         }
     }

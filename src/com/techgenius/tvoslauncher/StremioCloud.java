@@ -77,7 +77,7 @@ final class StremioCloud extends WatchCloud {
                 // Signing out locally is what matters.
             }
         }
-        SharedPreferences.Editor e = prefs.edit().remove(K_AUTH);
+        SharedPreferences.Editor e = prefs.edit().remove(K_AUTH).remove(K_LIBRARY);
         clearCache(e);
         e.apply();
     }
@@ -119,15 +119,48 @@ final class StremioCloud extends WatchCloud {
     // ------------------------------------------------------------------ continue watching
 
     @Override List<Item> continueWatching(int profile, int max) throws Exception {
+        List<Item> out = sortedItems(recentLibrary(), true, max, null);
+        saveCache(profile, out);
+        return out;
+    }
+
+    static final String K_LIBRARY = "centre_library";
+
+    /**
+     * Stremio Centre: continue watching and the most recently changed library titles from a
+     * single fetch. Returns {continueWatching, library}; the library excludes titles already in
+     * continue watching. Both are cached for an instant panel after a restart.
+     */
+    List<Item>[] centreRows(int maxCw, int maxLib) throws Exception {
         JSONArray lib = recentLibrary();
+        List<Item> cw = sortedItems(lib, true, maxCw, null);
+        java.util.Set<String> skip = new java.util.HashSet<>();
+        for (Item it : cw) skip.add(it.contentId);
+        List<Item> rest = sortedItems(lib, false, maxLib, skip);
+        saveCache(profile(), cw);
+        saveCacheKey(K_LIBRARY, rest);
+        @SuppressWarnings("unchecked")
+        List<Item>[] r = new List[]{cw, rest};
+        return r;
+    }
+
+    List<Item> loadLibraryCache() {
+        return loadCacheKey(K_LIBRARY);
+    }
+
+    /** Library items newest first: continue-watching ones, or the rest of the real library. */
+    private static List<Item> sortedItems(JSONArray lib, boolean continueWatching, int max, java.util.Set<String> skip) {
         List<Item> out = new ArrayList<>();
         List<Long> mtimes = new ArrayList<>();
         for (int i = 0; i < lib.length(); i++) {
             JSONObject o = lib.optJSONObject(i);
-            if (o == null || !inContinueWatching(o)) continue;
+            if (o == null) continue;
+            if (continueWatching ? !inContinueWatching(o) : !inLibrary(o)) continue;
             JSONObject st = o.optJSONObject("state");
+            if (st == null) st = new JSONObject();
             Item it = new Item();
             it.contentId = o.optString("_id", "");
+            if (it.contentId.isEmpty() || (skip != null && skip.contains(it.contentId))) continue;
             it.type = o.optString("type", "movie");
             it.title = o.optString("name", "");
             it.poster = o.isNull("poster") ? "" : o.optString("poster", "");
@@ -135,22 +168,32 @@ final class StremioCloud extends WatchCloud {
             it.position = st.optLong("timeOffset");
             it.duration = st.optLong("duration");
             // Stremio sets the offset to 1 ms when it moves on to the next, unstarted episode.
-            it.upNext = it.position <= 1_000L;
+            it.upNext = continueWatching && it.position <= 1_000L;
             if (it.upNext) it.position = 0;
             long mtime = time(o.opt("_mtime"));
             long watched = time(st.opt("lastWatched"));
             it.lastWatched = watched > 0 ? watched : mtime;
             episode(it);
-            if (it.contentId.isEmpty()) continue;
-            // Newest first by modification time, like Stremio's own continue watching row.
+            // Newest first by modification time, like Stremio's own rows.
             int at = 0;
             while (at < mtimes.size() && mtimes.get(at) >= mtime) at++;
             out.add(at, it);
             mtimes.add(at, mtime);
         }
         if (out.size() > max) out = new ArrayList<>(out.subList(0, max));
-        saveCache(profile, out);
         return out;
+    }
+
+    /** A title the user added to their library (not removed, not a temporary "just watched" one). */
+    private static boolean inLibrary(JSONObject o) {
+        String type = o.optString("type", "");
+        if (!type.equals("movie") && !type.equals("series")) return false;
+        return !o.optBoolean("removed", false) && !o.optBoolean("temp", false);
+    }
+
+    /** stremio:///detail/{type}/{id}: the title's page in Stremio. */
+    static String titleLink(Item it) {
+        return "stremio:///detail/" + Uri.encode(it.type) + "/" + Uri.encode(it.contentId, ":");
     }
 
     /**

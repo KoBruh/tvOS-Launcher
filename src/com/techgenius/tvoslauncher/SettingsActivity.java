@@ -911,6 +911,38 @@ public class SettingsActivity extends Activity {
     }
 
     void pageExtras() {
+        section(en("STREMIO CENTRE"));
+        row(en("Stremio Centre"),
+                () -> Extras.isStremioCentre(this) ? en("On") : en("Off"),
+                () -> {
+                    boolean next = !Extras.isStremioCentre(this);
+                    Extras.setStremioCentre(this, next);
+                    refreshAll();
+                    if (next && !new StremioCloud(this).isSignedIn()) {
+                        showStatusMsg(en("Turned on. Sign in to Stremio first: on Home, highlight the Stremio icon in the dock and scan the QR code."));
+                    } else if (next && !Scenes.isScenesLook(this)) {
+                        showStatusMsg(en("Turned on. It shows with the Scenes look (Appearance and scenes)."));
+                    } else {
+                        showStatusMsg(next ? en("Turned on. Press Home to see it.") : en("Turned off. The normal home screen is back."));
+                    }
+                });
+        row(en("Poster rows side"),
+                () -> Extras.getCentreSide(this) == Extras.SIDE_LEFT ? en("Left") : en("Right"),
+                () -> {
+                    Extras.setCentreSide(this, Extras.getCentreSide(this) == Extras.SIDE_LEFT ? Extras.SIDE_RIGHT : Extras.SIDE_LEFT);
+                    refreshAll();
+                });
+        row(en("Single-app dock"),
+                () -> Extras.isSingleAppDock(this) ? en("On") : en("Off"),
+                () -> {
+                    Extras.setSingleAppDock(this, !Extras.isSingleAppDock(this));
+                    refreshAll();
+                });
+        row(en("Dock app"),
+                () -> singleAppLabel(),
+                () -> openSubMenu("extras_single_app"));
+        infoNote(en("Stremio Centre hides the clock and widgets and shows your Stremio Continue Watching and library as posters. Single-app dock shows only the chosen app plus the Settings gear; other apps stay reachable from Recent Apps and Settings > Apps."));
+
         section(en("DOCK"));
         row(en("Dock position"),
                 () -> Extras.dockPositionLabel(this, Extras.getDockPosition(this)),
@@ -2375,6 +2407,8 @@ public class SettingsActivity extends Activity {
         if (subId == null) return;
         if ("extras_dock_pos".equals(subId)) {
             subMenuExtrasDockPosition();
+        } else if ("extras_single_app".equals(subId)) {
+            subMenuExtrasSingleApp();
         } else if ("dock_size".equals(subId)) {
             subMenuDockSize();
         } else if ("home_dashboard".equals(subId)) {
@@ -2440,6 +2474,52 @@ public class SettingsActivity extends Activity {
             subMenuCytSavedDisabled();
         } else if ("cyt_restore".equals(subId)) {
             subMenuCytRestore();
+        }
+    }
+
+    /** Launchable apps (TV and phone-style launcher entries), sorted by name: {label, package}. */
+    private List<String[]> launchableApps() {
+        PackageManager pm = getPackageManager();
+        Map<String, String> byPkg = new HashMap<>();
+        for (String cat : new String[]{Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER}) {
+            try {
+                for (ResolveInfo ri : pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(cat), 0)) {
+                    String pkg = ri.activityInfo.packageName;
+                    if (!pkg.equals(getPackageName()) && !byPkg.containsKey(pkg)) {
+                        byPkg.put(pkg, String.valueOf(ri.loadLabel(pm)));
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        List<String[]> out = new ArrayList<>();
+        for (Map.Entry<String, String> e : byPkg.entrySet()) out.add(new String[]{e.getValue(), e.getKey()});
+        java.util.Collections.sort(out, (a, b) -> a[0].compareToIgnoreCase(b[0]));
+        return out;
+    }
+
+    private String singleAppLabel() {
+        String pkg = Extras.getSingleAppPkg(this);
+        try {
+            PackageManager pm = getPackageManager();
+            return String.valueOf(pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)));
+        } catch (Throwable t) {
+            return pkg + " (" + en("not installed") + ")";
+        }
+    }
+
+    private void subMenuExtrasSingleApp() {
+        mainHeadView.setText(en("Dock app"));
+        backSubMenuRow();
+        section(en("THE ONE APP KEPT IN THE DOCK"));
+        String cur = Extras.getSingleAppPkg(this);
+        for (String[] app : launchableApps()) {
+            final String pkg = app[1];
+            choiceRow(app[0], pkg, pkg.equals(cur), () -> {
+                Extras.setSingleAppPkg(this, pkg);
+                rebuildMainRows();
+                showStatusMsg(en("Dock app set to") + " " + app[0] + ".");
+            });
         }
     }
 

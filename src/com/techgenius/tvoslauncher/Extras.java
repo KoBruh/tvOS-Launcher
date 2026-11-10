@@ -71,6 +71,49 @@ public final class Extras {
         }
     }
 
+    // ------------------------------------------------------------ Stremio Centre
+
+    private static final String K_CENTRE = "stremio_centre";
+    private static final String K_CENTRE_SIDE = "stremio_centre_side";
+    private static final String K_SINGLE_DOCK = "single_app_dock";
+    private static final String K_SINGLE_PKG = "single_app_pkg";
+    public static final int SIDE_LEFT = 0, SIDE_RIGHT = 1;
+
+    /** Home screen becomes a Stremio hub: only the dock and the Stremio panel remain. */
+    public static boolean isStremioCentre(Context c) {
+        return c != null && prefs(c).getBoolean(K_CENTRE, false);
+    }
+
+    public static void setStremioCentre(Context c, boolean on) {
+        prefs(c).edit().putBoolean(K_CENTRE, on).apply();
+    }
+
+    /** Which side of the screen the poster rows sit on (the title info takes the other side). */
+    public static int getCentreSide(Context c) {
+        return c == null ? SIDE_LEFT : prefs(c).getInt(K_CENTRE_SIDE, SIDE_LEFT);
+    }
+
+    public static void setCentreSide(Context c, int side) {
+        prefs(c).edit().putInt(K_CENTRE_SIDE, side).apply();
+    }
+
+    /** Dock shows a single chosen app (plus the Settings gear, so nothing is ever locked away). */
+    public static boolean isSingleAppDock(Context c) {
+        return c != null && prefs(c).getBoolean(K_SINGLE_DOCK, false);
+    }
+
+    public static void setSingleAppDock(Context c, boolean on) {
+        prefs(c).edit().putBoolean(K_SINGLE_DOCK, on).apply();
+    }
+
+    public static String getSingleAppPkg(Context c) {
+        return c == null ? STREMIO_PKG : prefs(c).getString(K_SINGLE_PKG, STREMIO_PKG);
+    }
+
+    public static void setSingleAppPkg(Context c, String pkg) {
+        prefs(c).edit().putString(K_SINGLE_PKG, pkg).apply();
+    }
+
     // ------------------------------------------------------------ Continue watching style
 
     private static final String K_CW_POSTERS = "cw_posters";

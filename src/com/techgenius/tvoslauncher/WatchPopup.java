@@ -271,6 +271,11 @@ final class WatchPopup {
         // scan, look away from the tile, and still come back signed in.
     }
 
+    /** Stremio Centre took over the home screen. */
+    void forceHide() {
+        if (visible) hideImmediate();
+    }
+
     private void hideImmediate() {
         visible = false;
         panel.animate().cancel();
