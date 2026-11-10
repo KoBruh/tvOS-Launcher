@@ -425,6 +425,59 @@ final class LocalAdb {
      * while AccessibilityService key filtering disables Android's default volume repeat in InputDispatcher.
      */
     static void watchVolumeKeys(Context c, VolumeKeyListener listener, BooleanSupplier shouldRun) {
+        watchGeteventLines(c, line -> {
+            int dir = 0;
+            if (line.contains("KEY_VOLUMEUP") || line.contains(" 0073 ")) {
+                dir = 1;
+            } else if (line.contains("KEY_VOLUMEDOWN") || line.contains(" 0072 ")) {
+                dir = -1;
+            }
+            if (dir != 0) {
+                String trimmed = line.trim();
+                boolean isDown = trimmed.endsWith("DOWN") || trimmed.endsWith("00000001");
+                boolean isUp = trimmed.endsWith("UP") || trimmed.endsWith("00000000");
+                boolean isRepeat = trimmed.endsWith("REPEAT") || trimmed.endsWith("00000002");
+                if (isDown) {
+                    listener.onVolumeKey(dir, true, false);
+                } else if (isRepeat) {
+                    listener.onVolumeKey(dir, true, true);
+                } else if (isUp) {
+                    listener.onVolumeKey(dir, false, false);
+                }
+            }
+        }, () -> volWatchConnected = true, () -> {
+            volWatchConnected = false;
+            listener.onVolumeKey(0, false, false);
+        }, shouldRun);
+    }
+
+    interface LineListener {
+        void onLine(String line);
+    }
+
+    /**
+     * Parses one `getevent -l` line. Returns {keyToken, state} for key events (state is DOWN, UP or
+     * REPEAT; the token is the key label such as KEY_VOLUMEUP, or a hex code for unlabelled keys),
+     * or null for anything else.
+     */
+    static String[] parseKeyLine(String line) {
+        if (line == null) return null;
+        String[] parts = line.trim().split("\\s+");
+        if (parts.length < 4) return null;
+        int i = parts[0].endsWith(":") ? 1 : 0;
+        if (parts.length < i + 3) return null;
+        if (!"EV_KEY".equals(parts[i]) && !"0001".equals(parts[i])) return null;
+        String token = parts[i + 1];
+        String v = parts[i + 2];
+        String state = ("DOWN".equals(v) || "00000001".equals(v)) ? "DOWN"
+                : ("UP".equals(v) || "00000000".equals(v)) ? "UP"
+                : ("REPEAT".equals(v) || "00000002".equals(v)) ? "REPEAT" : null;
+        return state == null ? null : new String[]{token, state};
+    }
+
+    /** Streams `getevent -l` lines over a LocalAdb shell session (reconnecting) while shouldRun holds. */
+    static void watchGeteventLines(Context c, LineListener lines, Runnable onConnected, Runnable onDisconnected,
+                                   BooleanSupplier shouldRun) {
         while (shouldRun.getAsBoolean()) {
             boolean connectedOnce = false;
             String[] hosts = {"127.0.0.1", localLanIp()};
@@ -465,7 +518,7 @@ final class LocalAdb {
                         int localId = 77;
                         byte[] openPayload = "shell:getevent -l 2>/dev/null\0".getBytes(StandardCharsets.UTF_8);
                         sendPacket(out, A_OPEN, localId, 0, openPayload);
-                        volWatchConnected = true;
+                        if (onConnected != null) onConnected.run();
 
                         StringBuilder lineBuf = new StringBuilder();
                         while (shouldRun.getAsBoolean()) {
@@ -483,24 +536,9 @@ final class LocalAdb {
                                             if (lineBuf.length() > 0) {
                                                 String line = lineBuf.toString();
                                                 lineBuf.setLength(0);
-                                                int dir = 0;
-                                                if (line.contains("KEY_VOLUMEUP") || line.contains(" 0073 ")) {
-                                                    dir = 1;
-                                                } else if (line.contains("KEY_VOLUMEDOWN") || line.contains(" 0072 ")) {
-                                                    dir = -1;
-                                                }
-                                                if (dir != 0) {
-                                                    String trimmed = line.trim();
-                                                    boolean isDown = trimmed.endsWith("DOWN") || trimmed.endsWith("00000001");
-                                                    boolean isUp = trimmed.endsWith("UP") || trimmed.endsWith("00000000");
-                                                    boolean isRepeat = trimmed.endsWith("REPEAT") || trimmed.endsWith("00000002");
-                                                    if (isDown) {
-                                                        listener.onVolumeKey(dir, true, false);
-                                                    } else if (isRepeat) {
-                                                        listener.onVolumeKey(dir, true, true);
-                                                    } else if (isUp) {
-                                                        listener.onVolumeKey(dir, false, false);
-                                                    }
+                                                try {
+                                                    lines.onLine(line);
+                                                } catch (Throwable ignored) {
                                                 }
                                             }
                                         } else {
@@ -521,8 +559,7 @@ final class LocalAdb {
                     if (connectedOnce) break;
                 } catch (Exception ignored) {
                 } finally {
-                    volWatchConnected = false;
-                    listener.onVolumeKey(0, false, false);
+                    if (onDisconnected != null) onDisconnected.run();
                 }
             }
             if (!shouldRun.getAsBoolean()) break;

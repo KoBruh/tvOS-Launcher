@@ -31,6 +31,8 @@ public final class Extras {
     private static final String K_NFX_ON = "netflix_to_stremio";
     private static final String K_NFX_CODE = "netflix_key_code";
     private static final String K_NFX_WINDOW = "netflix_window_redirect";
+    /** Netflix button as seen by `getevent` (for TVs that grab the key before apps see it). */
+    private static final String K_NFX_RAW = "netflix_raw_key";
 
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static volatile long lastRedirectMs = 0L;
@@ -90,6 +92,7 @@ public final class Extras {
 
     public static void setNetflixRedirectOn(Context c, boolean on) {
         prefs(c).edit().putBoolean(K_NFX_ON, on).apply();
+        syncNetflixWatcher(c);
     }
 
     /** Learned key code of the remote's Netflix button, or -1 if not detected yet. */
@@ -108,6 +111,56 @@ public final class Extras {
 
     public static void setNetflixWindowRedirectOn(Context c, boolean on) {
         prefs(c).edit().putBoolean(K_NFX_WINDOW, on).apply();
+    }
+
+    // ------------------------------------------------------------ Raw-input layer (LocalAdb getevent)
+
+    /** Keys never used as the Netflix button (so pressing OK/arrows during detection is ignored). */
+    private static final java.util.Set<String> NAV_TOKENS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "KEY_ENTER", "KEY_OK", "KEY_SELECT", "KEY_UP", "KEY_DOWN", "KEY_LEFT", "KEY_RIGHT",
+            "KEY_BACK", "KEY_ESC", "KEY_HOME", "KEY_POWER", "KEY_VOLUMEUP", "KEY_VOLUMEDOWN", "KEY_MUTE",
+            "BTN_LEFT", "BTN_TOUCH", "BTN_MOUSE"));
+
+    public static String getNetflixRawKey(Context c) {
+        return c == null ? "" : prefs(c).getString(K_NFX_RAW, "");
+    }
+
+    public static void setNetflixRawKey(Context c, String token) {
+        prefs(c).edit().putString(K_NFX_RAW, token == null ? "" : token).apply();
+        syncNetflixWatcher(c);
+    }
+
+    /** A getevent token that could be the Netflix button (not a navigation key). */
+    static boolean isCandidateRawKey(String token) {
+        return token != null && !token.isEmpty() && !NAV_TOKENS.contains(token);
+    }
+
+    private static volatile Thread rawWatcher;
+
+    private static boolean rawWatcherWanted(Context c) {
+        return isNetflixRedirectOn(c) && !getNetflixRawKey(c).isEmpty()
+                && LocalAdb.getAdbMode(c) == LocalAdb.ADB_MODE_PERSISTENT;
+    }
+
+    /**
+     * Starts or stops the raw Netflix-button watcher: a single `getevent` stream over LocalAdb that
+     * only wakes up when a remote button is pressed. Safe to call often.
+     */
+    public static synchronized void syncNetflixWatcher(Context c) {
+        if (c == null) return;
+        final Context app = c.getApplicationContext();
+        if (!rawWatcherWanted(app)) return;  // a running watcher stops itself at its next event
+        Thread t = rawWatcher;
+        if (t != null && t.isAlive()) return;
+        t = new Thread(() -> LocalAdb.watchGeteventLines(app, line -> {
+            String[] k = LocalAdb.parseKeyLine(line);
+            if (k != null && "DOWN".equals(k[1]) && k[0].equals(getNetflixRawKey(app))) {
+                MAIN.post(() -> openStremio(app, true));
+            }
+        }, null, null, () -> rawWatcherWanted(app)), "netflix-key-watch");
+        t.setDaemon(true);
+        rawWatcher = t;
+        t.start();
     }
 
     public static boolean isNetflixPackage(String pkg) {

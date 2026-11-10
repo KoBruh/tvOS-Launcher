@@ -306,6 +306,7 @@ public class PowerService extends AccessibilityService {
     protected void onServiceConnected() {
         instance = this;
         serviceConnectedElapsedMs = SystemClock.elapsedRealtime();
+        Extras.syncNetflixWatcher(this);
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         try {
             AccessibilityServiceInfo info = getServiceInfo();

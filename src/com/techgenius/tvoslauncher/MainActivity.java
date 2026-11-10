@@ -445,6 +445,7 @@ public class MainActivity extends Activity {
         // Signed in to Nuvio/Stremio: refresh continue watching in the background. Signed out: no-op.
         ensureTvListingsPermission();
         MediaWatchService.ensureSessionTracking(this);
+        Extras.syncNetflixWatcher(this);
         if (sceneHome != null) sceneHome.onWatchPopupsResume();
         if (Scenes.isScenesLook(this) && sceneHome != null) {
             sceneHome.sceneView.setClassicClockOnlyMode(false);

@@ -867,6 +867,49 @@ public class SettingsActivity extends Activity {
         return I18n.s(this, s, null);
     }
 
+    /**
+     * Learns the Netflix button two ways at once: the accessibility key filter (works when apps can
+     * see the key) and, with Persistent ADB mode, the raw input stream (`getevent`) for TVs whose
+     * firmware grabs the key first. Whichever sees it first wins.
+     */
+    private void detectNetflixButton() {
+        final boolean deep = LocalAdb.getAdbMode(this) == LocalAdb.ADB_MODE_PERSISTENT;
+        final boolean[] done = {false};
+        String msg = en("Press the Netflix button on your remote now.");
+        if (!deep) {
+            msg += "\n\n" + en("If this box doesn't close, your TV grabs that button before apps can see it. Switch Settings > Advanced > ADB operating mode to Persistent ADB Mode, then try again.");
+        }
+        final android.app.AlertDialog dlg = ButtonMapper.showKeyCaptureDialog(this, en("Detect Netflix button"), msg,
+                keyCode -> {
+                    if (done[0]) return;
+                    done[0] = true;
+                    Extras.setNetflixKeyCode(this, keyCode);
+                    if (!Extras.isNetflixRedirectOn(this)) Extras.setNetflixRedirectOn(this, true);
+                    refreshAll();
+                    showStatusMsg(en("Saved key code") + " " + keyCode + ". " + en("The Netflix button now opens Stremio."));
+                });
+        if (!deep) return;
+        final android.content.Context app = getApplicationContext();
+        new Thread(() -> LocalAdb.watchGeteventLines(app, line -> {
+            String[] k = LocalAdb.parseKeyLine(line);
+            if (k == null || !"DOWN".equals(k[1]) || !Extras.isCandidateRawKey(k[0])) return;
+            final String token = k[0];
+            runOnUiThread(() -> {
+                if (done[0] || isFinishing()) return;
+                done[0] = true;
+                ButtonMapper.captureListener = null;
+                try {
+                    if (dlg.isShowing()) dlg.dismiss();
+                } catch (Exception ignored) { }
+                Extras.setNetflixRawKey(this, token);
+                if (!Extras.isNetflixRedirectOn(this)) Extras.setNetflixRedirectOn(this, true);
+                refreshAll();
+                showStatusMsg(en("Saved") + " " + token + " (" + en("deep detection") + "). "
+                        + en("The Netflix button now opens Stremio."));
+            });
+        }, null, null, () -> !done[0] && !isFinishing()), "netflix-key-detect").start();
+    }
+
     void pageExtras() {
         section(en("DOCK"));
         row(en("Dock position"),
@@ -900,19 +943,12 @@ public class SettingsActivity extends Activity {
                 });
         row(en("Detect Netflix button"),
                 () -> {
+                    String raw = Extras.getNetflixRawKey(this);
+                    if (!raw.isEmpty()) return en("Deep") + " · " + raw;
                     int code = Extras.getNetflixKeyCode(this);
                     return code > 0 ? en("Key code") + " " + code : en("Not detected yet");
                 },
-                () -> ButtonMapper.showKeyCaptureDialog(this,
-                        en("Detect Netflix button"),
-                        en("Press the Netflix button on your remote now.\n\nIf Netflix opens instead of this box closing, your TV handles that button before apps can see it. In that case keep \"If Netflix opens anyway\" set to \"Switch to Stremio\"."),
-                        keyCode -> {
-                            Extras.setNetflixKeyCode(this, keyCode);
-                            if (!Extras.isNetflixRedirectOn(this)) Extras.setNetflixRedirectOn(this, true);
-                            refreshAll();
-                            showStatusMsg(en("Saved key code") + " " + keyCode + ". "
-                                    + en("The Netflix button now opens Stremio."));
-                        }));
+                this::detectNetflixButton);
         row(en("If Netflix opens anyway"),
                 () -> Extras.isNetflixWindowRedirectOn(this) ? en("Switch to Stremio") : en("Do nothing"),
                 () -> {
