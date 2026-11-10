@@ -2354,7 +2354,7 @@ public final class CustomMedia {
 
     private static final String[] KNOWN_PREF_NAMES = {
         "settings", "setup", "profiles", "home", "home_default",
-        "app_custom_names", "button_mapper", "control_panel",
+        "app_custom_names", "button_mapper", "control_panel", "extras",
         "weather", "suggestions", "inputs", "clicks",
         "media_watch", "cleanyourtv", "cleanyourtv_prefs", "local_adb", "present",
         "custom_media", "app_updater", "screensaver"

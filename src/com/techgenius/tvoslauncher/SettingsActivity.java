@@ -52,6 +52,7 @@ import java.util.Set;
 public class SettingsActivity extends Activity {
 
     static final String ROOT = "root",
+            EXTRAS = "EXTRAS !",
             LANGUAGE = "Language",
             LOCATION = "Location",
             WEATHER = "Weather",
@@ -72,6 +73,7 @@ public class SettingsActivity extends Activity {
             PERMS = "Permissions";
 
     private static final String[][] SIDEBAR_SECTIONS = {
+        {EXTRAS, "ambient"},
         {LOOK_SCENES, "scene"},
         {WEATHER, "cloud"},
         {APPS, "apps"},
@@ -114,7 +116,7 @@ public class SettingsActivity extends Activity {
         }
     };
 
-    private String currentSection = LOOK_SCENES;
+    private String currentSection = EXTRAS;
     private boolean inRows = false;
     private boolean rebuilding = false;
     private String liftedSceneId = null;
@@ -147,7 +149,8 @@ public class SettingsActivity extends Activity {
     private int cytManualPage = 0;
 
     private String resolvePageExtra(String pg) {
-        if (pg == null || pg.isEmpty()) return LOOK_SCENES;
+        if (pg == null || pg.isEmpty()) return EXTRAS;
+        if ("extras".equalsIgnoreCase(pg)) return EXTRAS;
         if (INPUTS.equals(pg) || "cp".equalsIgnoreCase(pg) || "control_panel".equalsIgnoreCase(pg)) {
             return CONTROL_PANEL;
         } else if (LOCATION.equals(pg) || WEATHER.equals(pg) || "weather".equalsIgnoreCase(pg)) {
@@ -240,6 +243,7 @@ public class SettingsActivity extends Activity {
 
     private String sectionTitle(String sec) {
         switch (sec) {
+            case EXTRAS: return "EXTRAS !";
             case LOOK_SCENES: return tr("Appearance and scenes", "Görünüm ve sahneler");
             case LOCATION:
             case WEATHER: return tr("Weather and location", "Hava durumu ve konum");
@@ -800,6 +804,9 @@ public class SettingsActivity extends Activity {
                 renderSubMenu(activeSubMenu);
             } else {
                 switch (currentSection) {
+                    case EXTRAS:
+                        pageExtras();
+                        break;
                     case LANGUAGE:
                         pageLanguage();
                         break;
@@ -854,6 +861,55 @@ public class SettingsActivity extends Activity {
     }
 
     // ================================================================ Section Pages
+
+    /** English-only string (other languages fall back to English). */
+    private String en(String s) {
+        return I18n.s(this, s, null);
+    }
+
+    void pageExtras() {
+        section(en("REMOTE"));
+        row(en("Netflix button opens Stremio"),
+                () -> Extras.isNetflixRedirectOn(this) ? en("On") : en("Off"),
+                () -> {
+                    boolean next = !Extras.isNetflixRedirectOn(this);
+                    Extras.setNetflixRedirectOn(this, next);
+                    refreshAll();
+                    if (!next) {
+                        showStatusMsg(en("Netflix button is back to normal."));
+                    } else if (!ButtonMapper.isServiceEnabled(this)) {
+                        showStatusMsg(en("Turned on. It needs the accessibility service: Settings > Button mapper > Button Mapper accessibility service."));
+                    } else if (!Extras.isStremioInstalled(this)) {
+                        showStatusMsg(en("Turned on, but Stremio is not installed."));
+                    } else if (Extras.getNetflixKeyCode(this) <= 0) {
+                        showStatusMsg(en("Turned on. Now use \"Detect Netflix button\" below and press it once."));
+                    } else {
+                        showStatusMsg(en("Turned on. The Netflix button now opens Stremio."));
+                    }
+                });
+        row(en("Detect Netflix button"),
+                () -> {
+                    int code = Extras.getNetflixKeyCode(this);
+                    return code > 0 ? en("Key code") + " " + code : en("Not detected yet");
+                },
+                () -> ButtonMapper.showKeyCaptureDialog(this,
+                        en("Detect Netflix button"),
+                        en("Press the Netflix button on your remote now.\n\nIf Netflix opens instead of this box closing, your TV handles that button before apps can see it. In that case keep \"If Netflix opens anyway\" set to \"Switch to Stremio\"."),
+                        keyCode -> {
+                            Extras.setNetflixKeyCode(this, keyCode);
+                            if (!Extras.isNetflixRedirectOn(this)) Extras.setNetflixRedirectOn(this, true);
+                            refreshAll();
+                            showStatusMsg(en("Saved key code") + " " + keyCode + ". "
+                                    + en("The Netflix button now opens Stremio."));
+                        }));
+        row(en("If Netflix opens anyway"),
+                () -> Extras.isNetflixWindowRedirectOn(this) ? en("Switch to Stremio") : en("Do nothing"),
+                () -> {
+                    Extras.setNetflixWindowRedirectOn(this, !Extras.isNetflixWindowRedirectOn(this));
+                    refreshAll();
+                });
+        infoNote(en("While \"Switch to Stremio\" is set, Netflix can't be opened at all. Turn the main toggle off to use Netflix again. Uses the Button mapper accessibility service, nothing runs in the background."));
+    }
 
     void pageLanguage() {
         String cur = I18n.getLang(this);
@@ -1945,7 +2001,7 @@ public class SettingsActivity extends Activity {
         }
         String[] knownPrefs = {
             "settings", "setup", "profiles", "home", "home_default",
-            "app_custom_names", "button_mapper", "control_panel",
+            "app_custom_names", "button_mapper", "control_panel", "extras",
             "weather", "suggestions", "inputs", "clicks",
             "media_watch", "cleanyourtv_prefs", "local_adb", "present",
             "custom_media", "app_updater"

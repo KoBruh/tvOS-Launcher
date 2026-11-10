@@ -1036,6 +1036,9 @@ public class PowerService extends AccessibilityService {
         if (e != null && e.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && e.getPackageName() != null) {
             String fgPkg = e.getPackageName().toString();
             String clsName = e.getClassName() != null ? e.getClassName().toString() : "";
+            if (Extras.onForegroundPackage(this, fgPkg)) {
+                return;
+            }
             RecentAppsOverlay.recordAppUsed(this, fgPkg);
             MediaWatchService.pollActiveSessionsAsync(this);
 

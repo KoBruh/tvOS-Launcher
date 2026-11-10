@@ -570,6 +570,11 @@ public final class ButtonMapper {
             }
         }
 
+        // EXTRAS !: Netflix button opens Stremio (takes priority over regular mappings).
+        if (Extras.handleNetflixKey(c, ev)) {
+            return true;
+        }
+
         String t1 = getTarget(c, code, TAP_SINGLE);
         String t2 = getTarget(c, code, TAP_DOUBLE);
         String t3 = getTarget(c, code, TAP_TRIPLE);
@@ -687,6 +692,57 @@ public final class ButtonMapper {
     private static AlertDialog.Builder themedDialog(Activity a, String title) {
         return new AlertDialog.Builder(a, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle(title);
+    }
+
+    public interface KeyCodeCallback {
+        void onKey(int keyCode);
+    }
+
+    /** Generic "press a button" dialog: reports the first capturable key pressed, then closes. */
+    public static AlertDialog showKeyCaptureDialog(Activity a, String title, String message, KeyCodeCallback cb) {
+        final AlertDialog[] dlgRef = new AlertDialog[1];
+        final boolean[] done = {false};
+        final KeyCodeCallback once = keyCode -> {
+            if (done[0]) return;
+            done[0] = true;
+            captureListener = null;
+            if (dlgRef[0] != null && dlgRef[0].isShowing()) {
+                try {
+                    dlgRef[0].dismiss();
+                } catch (Exception ignored) { }
+            }
+            cb.onKey(keyCode);
+        };
+        captureListener = keyCode -> a.runOnUiThread(() -> once.onKey(keyCode));
+        AlertDialog dlg = themedDialog(a, title)
+                .setMessage(message)
+                .setNegativeButton(I18n.s(a, "Cancel", "İptal"), (d, w) -> captureListener = null)
+                .setOnCancelListener(d -> captureListener = null)
+                .setOnDismissListener(d -> {
+                    captureListener = null;
+                    captureDialogRef = null;
+                })
+                .create();
+        dlgRef[0] = dlg;
+        captureDialogRef = new java.lang.ref.WeakReference<>(dlg);
+        dlg.setOnKeyListener((d, keyCode, event) -> {
+            if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
+                if (event.getAction() == KeyEvent.ACTION_UP) {
+                    captureListener = null;
+                    d.dismiss();
+                }
+                return true;
+            }
+            if (isCapturableKey(keyCode)) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                    once.onKey(keyCode);
+                }
+                return true;
+            }
+            return false;
+        });
+        dlg.show();
+        return dlg;
     }
 
     /** Shows the "Press any button on your remote" capture dialog, then opens the 1x/2x/3x tap editor. */
