@@ -872,6 +872,9 @@ public final class HomeDashboard {
     /**
      * Builds the 4-widget horizontal dashboard row.
      */
+    /** Width taken by a Left/Right home dock (EXTRAS ! dock position), set by SceneHome. */
+    static int sceneWidthInsetPx = 0;
+
     public static View buildDashboardView(
             final MainActivity host,
             final MainActivity.LiquidGlass.Backdrop glassSource,
@@ -933,6 +936,7 @@ public final class HomeDashboard {
         }
 
         int screenW = host.getResources().getDisplayMetrics().widthPixels;
+        if (Scenes.isScenesLook(host)) screenW -= sceneWidthInsetPx;  // room for a side dock
         int sidePad = dp(host, 48);
         int gap = dp(host, 14);
         int count = Math.max(1, cards.size());

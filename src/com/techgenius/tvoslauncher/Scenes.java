@@ -921,6 +921,25 @@ public final class Scenes {
         private String weatherDesc;
         private int weatherCode = -1;
         private boolean lockScreenMode = false;
+        /** Room kept free for the home dock (EXTRAS ! dock position), in px. */
+        private int dockInsetL, dockInsetT, dockInsetR;
+
+        public void setDockInsets(int left, int top, int right) {
+            if (left == dockInsetL && top == dockInsetT && right == dockInsetR) return;
+            dockInsetL = left;
+            dockInsetT = top;
+            dockInsetR = right;
+            invalidate();
+        }
+
+        /** Shifts a left/centre/right-aligned element horizontally away from a side dock. */
+        private float dockShiftX(float x, float elemW, float w) {
+            if (lockScreenMode || classicClockOnlyMode || (dockInsetL == 0 && dockInsetR == 0)) return x;
+            float mid = x + elemW / 2f;
+            if (mid < w / 3f) return x + dockInsetL;
+            if (mid > w * 2f / 3f) return x - dockInsetR;
+            return x + (dockInsetL - dockInsetR) / 2f;
+        }
         private boolean classicClockOnlyMode = false;
         private int folderFlipCounter = 0;
 
@@ -1690,14 +1709,15 @@ public final class Scenes {
             float topOffsetU = isRightAligned ? 62f : 19f;
             float baseDateTopU = classicClockOnlyMode ? 45f : sp.dateTopU;
             float baseClockTopU = classicClockOnlyMode ? 68f : sp.clockTopU;
-            float dateBaselineY = Math.max((46f + topOffsetU) * u, (baseDateTopU + topOffsetU) * u);
+            float dockTop = (lockScreenMode || classicClockOnlyMode) ? 0f : dockInsetT;
+            float dateBaselineY = Math.max((46f + topOffsetU) * u, (baseDateTopU + topOffsetU) * u) + dockTop;
             float greetBaselineY = dateBaselineY - (18.5f * u);
 
             clockFillPaint.getTextBounds("0847", 0, 4, digitBounds);
             float rawCapH = Math.max(clockPx * 0.68f, -digitBounds.top);
             float visualCapH = rawCapH * scaleY;
             float minClockTopY = dateBaselineY + (14f * u);
-            float clockVisualTopY = Math.max((baseClockTopU + topOffsetU) * u, minClockTopY);
+            float clockVisualTopY = Math.max((baseClockTopU + topOffsetU) * u + dockTop, minClockTopY);
             float baselineY = clockVisualTopY + visualCapH;
 
             float textW = measureClockWidth(timeStr, clockFillPaint, u, isDuo || isRounded);
@@ -1713,6 +1733,7 @@ public final class Scenes {
             } else {
                 clockX = sp.leftAlign ? (sp.clockLeftU * u) : ((w - textW) * 0.5f);
             }
+            clockX = dockShiftX(clockX, textW, w);
 
             if (ls.glassShader != null && ls.glassBaked != null) {
                 shaderMatrix.reset();
@@ -1818,6 +1839,7 @@ public final class Scenes {
             } else {
                 greetX = sp.leftAlign ? (sp.dateLeftU * u) : ((w - greetW) * 0.5f);
             }
+            greetX = dockShiftX(greetX, greetW, w);
             canvas.drawText(greeting, greetX, greetBaselineY, greetPaint);
 
             String dateStr = I18n.formatSceneDate(ctx, new Date());
@@ -1849,6 +1871,7 @@ public final class Scenes {
             } else {
                 dateX = sp.leftAlign ? (sp.dateLeftU * u) : ((w - dateW) * 0.5f);
             }
+            dateX = dockShiftX(dateX, dateW, w);
             canvas.drawText(fullHeader, dateX, dateBaselineY, datePaint);
 
             if (layerSave) {

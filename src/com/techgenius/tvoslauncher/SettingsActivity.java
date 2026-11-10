@@ -868,6 +868,10 @@ public class SettingsActivity extends Activity {
     }
 
     void pageExtras() {
+        section(en("DOCK"));
+        row(en("Dock position"),
+                () -> Extras.dockPositionLabel(this, Extras.getDockPosition(this)),
+                () -> openSubMenu("extras_dock_pos"));
         section(en("REMOTE"));
         row(en("Netflix button opens Stremio"),
                 () -> Extras.isNetflixRedirectOn(this) ? en("On") : en("Off"),
@@ -2326,7 +2330,9 @@ public class SettingsActivity extends Activity {
 
     private void renderSubMenu(String subId) {
         if (subId == null) return;
-        if ("dock_size".equals(subId)) {
+        if ("extras_dock_pos".equals(subId)) {
+            subMenuExtrasDockPosition();
+        } else if ("dock_size".equals(subId)) {
             subMenuDockSize();
         } else if ("home_dashboard".equals(subId)) {
             subMenuHomeDashboard();
@@ -2392,6 +2398,29 @@ public class SettingsActivity extends Activity {
         } else if ("cyt_restore".equals(subId)) {
             subMenuCytRestore();
         }
+    }
+
+    private void subMenuExtrasDockPosition() {
+        mainHeadView.setText(en("Dock position"));
+        backSubMenuRow();
+        section(en("WHERE THE DOCK SITS ON THE HOME SCREEN"));
+        int cur = Extras.getDockPosition(this);
+        int[] opts = {Extras.DOCK_BOTTOM, Extras.DOCK_TOP, Extras.DOCK_LEFT, Extras.DOCK_RIGHT};
+        String[] subs = {
+                en("Classic tvOS dock along the bottom edge"),
+                en("Along the top edge; the clock and widgets move down"),
+                en("Vertical, on the left; Up/Down moves along it, Right leaves it"),
+                en("Vertical, on the right; Up/Down moves along it, Left leaves it")};
+        for (int i = 0; i < opts.length; i++) {
+            final int pos = opts[i];
+            choiceRow(Extras.dockPositionLabel(this, pos), subs[i], cur == pos, () -> {
+                Extras.setDockPosition(this, pos);
+                rebuildMainRows();
+                showStatusMsg(en("Dock position set to") + " " + Extras.dockPositionLabel(this, pos)
+                        + ". " + en("Press Home to see it."));
+            });
+        }
+        infoNote(en("Applies to the Scenes look. Dock size (Appearance and scenes) works in every position."));
     }
 
     private void subMenuDockSize() {

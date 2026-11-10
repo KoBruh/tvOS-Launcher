@@ -510,12 +510,16 @@ final class WatchPopup {
         View selected = selectedProfileButton();
         int belowProfiles = !cards.isEmpty() ? cards.get(0).getId()
                 : anchor != null ? anchor.getId() : View.NO_ID;
+        // EXTRAS ! dock position: the edge of the row that faces the dock leads back to the tile.
+        int pos = home.dockPos;
+        int back = anchor != null ? anchor.getId() : View.NO_ID;
         for (int i = 0; i < cards.size(); i++) {
             View c = cards.get(i);
-            if (i == 0) c.setNextFocusLeftId(c.getId());
-            if (i == cards.size() - 1) c.setNextFocusRightId(c.getId());
+            if (i == 0) c.setNextFocusLeftId(pos == Extras.DOCK_LEFT && back != View.NO_ID ? back : c.getId());
+            if (i == cards.size() - 1) c.setNextFocusRightId(pos == Extras.DOCK_RIGHT && back != View.NO_ID ? back : c.getId());
             if (anchor != null) c.setNextFocusDownId(anchor.getId());
-            c.setNextFocusUpId(selected != null ? selected.getId() : c.getId());
+            c.setNextFocusUpId(selected != null ? selected.getId()
+                    : (pos == Extras.DOCK_TOP && back != View.NO_ID ? back : c.getId()));
         }
         for (int i = 0; i < profileButtons.size(); i++) {
             View b = profileButtons.get(i);
@@ -644,7 +648,7 @@ final class WatchPopup {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         int n = items.size();
         int contentW = n * cardW + (n - 1) * gap + 2 * pad;
-        int maxW = host.screenW - 2 * dp(SceneHome.SHELF_LEFT_DP) + 2 * pad;
+        int maxW = host.screenW - home.shelfLeftPx - home.shelfRightPx + 2 * pad;
         panel.addView(scroll, new LinearLayout.LayoutParams(Math.min(contentW, maxW),
                 ViewGroup.LayoutParams.WRAP_CONTENT));
     }
@@ -720,12 +724,12 @@ final class WatchPopup {
     private void position() {
         int any = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
         panel.measure(any, any);
-        int shelfCardsBottom = dp(SceneHome.SHELF_TOP_DP) + headerTextH
+        int shelfCardsBottom = home.shelfTopPx + headerTextH
                 + dp(SceneHome.SHELF_HEADER_GAP_DP) + dp(SceneHome.SHELF_CARD_H_DP);
         int contentBottom = panel.getMeasuredHeight() - rowInset;  // the card row has rowInset below it
         // Placed with layout margins (not translation) so translationY stays free for the
         // show/hide slide animation and can never push the popup to the top of the screen.
-        int left = dp(SceneHome.SHELF_LEFT_DP) - rowInset;
+        int left = home.shelfLeftPx - rowInset;
         int top = shelfCardsBottom - contentBottom;
         ViewGroup.LayoutParams raw = panel.getLayoutParams();
         if (raw instanceof FrameLayout.LayoutParams) {

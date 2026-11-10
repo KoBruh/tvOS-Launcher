@@ -34,9 +34,39 @@ public final class Extras {
 
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static volatile long lastRedirectMs = 0L;
+    private static long windowBurstStartMs = 0L;
+    private static int windowBurstCount = 0;
 
     static SharedPreferences prefs(Context c) {
         return c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    // ------------------------------------------------------------ Dock position
+
+    public static final int DOCK_BOTTOM = 0, DOCK_TOP = 1, DOCK_LEFT = 2, DOCK_RIGHT = 3;
+    private static final String K_DOCK_POS = "dock_position";
+
+    public static int getDockPosition(Context c) {
+        if (c == null) return DOCK_BOTTOM;
+        int p = prefs(c).getInt(K_DOCK_POS, DOCK_BOTTOM);
+        return (p < DOCK_BOTTOM || p > DOCK_RIGHT) ? DOCK_BOTTOM : p;
+    }
+
+    public static void setDockPosition(Context c, int pos) {
+        prefs(c).edit().putInt(K_DOCK_POS, pos).apply();
+    }
+
+    public static boolean isDockVertical(int pos) {
+        return pos == DOCK_LEFT || pos == DOCK_RIGHT;
+    }
+
+    public static String dockPositionLabel(Context c, int pos) {
+        switch (pos) {
+            case DOCK_TOP: return I18n.s(c, "Top", null);
+            case DOCK_LEFT: return I18n.s(c, "Left", null);
+            case DOCK_RIGHT: return I18n.s(c, "Right", null);
+            default: return I18n.s(c, "Bottom (default)", null);
+        }
     }
 
     // ------------------------------------------------------------ Netflix button → Stremio
@@ -93,11 +123,20 @@ public final class Extras {
         if (!isNetflixPackage(pkg) || !isNetflixRedirectOn(c) || !isNetflixWindowRedirectOn(c)) {
             return false;
         }
+        // Netflix re-fronts its own window several times while it starts, so redirect every time
+        // (no debounce), but cap it so a misbehaving firmware can never cause an endless loop.
+        long now = SystemClock.uptimeMillis();
+        if (now - windowBurstStartMs > 20_000L) {
+            windowBurstStartMs = now;
+            windowBurstCount = 0;
+        }
+        if (++windowBurstCount > 12) return false;
         final Context app = c.getApplicationContext();
         MAIN.post(() -> {
-            openStremio(app, true);
-            // Netflix is now in the background; ask the system to drop it to free RAM.
-            MAIN.postDelayed(() -> killBackground(app, pkg), 1500);
+            openStremio(app, false);
+            // Close Netflix once it is behind Stremio so it stops coming back and frees its RAM.
+            MAIN.postDelayed(() -> killBackground(app, pkg), 400);
+            MAIN.postDelayed(() -> killBackground(app, pkg), 2000);
         });
         return true;
     }

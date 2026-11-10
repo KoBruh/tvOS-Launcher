@@ -91,6 +91,7 @@ final class SceneHome {
     final NuvioCloud nuvioCloud;
     final StremioCloud stremioCloud;
 
+    LinearLayout topRightRow;
     LinearLayout dockContainer;
     LinearLayout dockBox;
     TextView dockLabel;
@@ -106,6 +107,14 @@ final class SceneHome {
     int focusedShelfIdx = 0;
     int moveDockIdx = -1;
     int currentDockCols = 12;
+    /** Tiles per column when the dock is vertical (EXTRAS ! dock position Left/Right). */
+    int currentDockRows = 6;
+    /** Dock position currently laid out (Extras.DOCK_*), -1 before the first layout. */
+    int dockPos = -1;
+    /** Side the tooltip pointer is on: 0 bottom (label above tile), 1 top, 2 left, 3 right. */
+    private int tooltipSide = 0;
+    /** Keep Watching shelf / dashboard / Watch popup placement, shifted away from the dock. */
+    int shelfLeftPx, shelfRightPx, shelfTopPx;
     int currentMaxSingleRowApps = 10;
     ObjectAnimator moveWiggle;
     FrameLayout sheetLayer;
@@ -146,6 +155,9 @@ final class SceneHome {
         this.overlay = new FrameLayout(host);
         this.overlay.setClipChildren(false);
         this.overlay.setClipToPadding(false);
+        shelfLeftPx = dp(SHELF_LEFT_DP);
+        shelfRightPx = dp(SHELF_LEFT_DP);
+        shelfTopPx = dp(SHELF_TOP_DP);
 
         buildTopBar();
         buildKeepWatchingShelf();
@@ -214,7 +226,7 @@ final class SceneHome {
     // ---------------------------------------------------------------- Top Bar (Profile pill & Control Panel in top-right)
 
     private void buildTopBar() {
-        LinearLayout topRightRow = new LinearLayout(host);
+        topRightRow = new LinearLayout(host);
         topRightRow.setOrientation(LinearLayout.HORIZONTAL);
         topRightRow.setGravity(Gravity.CENTER_VERTICAL);
         topRightRow.setClipChildren(false);
@@ -1367,54 +1379,89 @@ final class SceneHome {
 
         return new Drawable() {
             private final android.graphics.Path cachedPath = new android.graphics.Path();
-            private float lastLeft = -1f, lastRight = -1f, lastH = -1f;
+            private float lastLeft = -1f, lastRight = -1f, lastH = -1f, lastW = -1f;
+            private int lastSide = -1;
 
             @Override
             public void draw(Canvas canvas) {
                 android.graphics.Rect b = getBounds();
                 float w = b.width();
-                float h = b.height() - ptrH;
-                if (w <= 0 || h <= 0) return;
-
+                float fullH = b.height();
+                int side = tooltipSide;
                 float halfStroke = strokeW / 2f;
-                float cx = w / 2f;
-                float textW = 0f;
-                if (dockLabel != null && dockLabel.getText() != null) {
-                    CharSequence cs = dockLabel.getText();
-                    textW = dockLabel.getPaint().measureText(cs, 0, cs.length());
+                float l, t, r, bt;
+                if (side == 2 || side == 3) {
+                    // Vertical dock: label wraps its text and sits beside the tile.
+                    if (w - ptrH <= 0 || fullH <= 0) return;
+                    l = side == 2 ? ptrH : halfStroke;
+                    r = side == 3 ? w - ptrH : w - halfStroke;
+                    t = halfStroke;
+                    bt = fullH - halfStroke;
+                } else {
+                    float h = fullH - ptrH;
+                    if (w <= 0 || h <= 0) return;
+                    float cx = w / 2f;
+                    float textW = 0f;
+                    if (dockLabel != null && dockLabel.getText() != null) {
+                        CharSequence cs = dockLabel.getText();
+                        textW = dockLabel.getPaint().measureText(cs, 0, cs.length());
+                    }
+                    float bubbleW = Math.min(w - strokeW, Math.max(minBubbleW, textW + padX));
+                    l = Math.max(halfStroke, cx - bubbleW / 2f);
+                    r = Math.min(w - halfStroke, cx + bubbleW / 2f);
+                    t = side == 1 ? ptrH : halfStroke;
+                    bt = side == 1 ? fullH - halfStroke : h;
                 }
-                float bubbleW = Math.min(w - strokeW, Math.max(minBubbleW, textW + padX));
-                float left = Math.max(halfStroke, cx - bubbleW / 2f);
-                float right = Math.min(w - halfStroke, cx + bubbleW / 2f);
-
-                if (Math.abs(left - lastLeft) > 0.5f || Math.abs(right - lastRight) > 0.5f || Math.abs(h - lastH) > 0.5f) {
-                    lastLeft = left;
-                    lastRight = right;
-                    lastH = h;
-                    buildTooltipPath(cachedPath, left, halfStroke, right, h, rad, cx, ptrW, ptrH);
+                if (side != lastSide || Math.abs(l - lastLeft) > 0.5f || Math.abs(r - lastRight) > 0.5f
+                        || Math.abs(bt - lastH) > 0.5f || Math.abs(w - lastW) > 0.5f) {
+                    lastSide = side;
+                    lastLeft = l;
+                    lastRight = r;
+                    lastH = bt;
+                    lastW = w;
+                    buildTooltipPath(cachedPath, side, l, t, r, bt, rad, w / 2f, fullH / 2f, ptrW, ptrH);
                 }
                 canvas.drawPath(cachedPath, fillPaint);
                 canvas.drawPath(cachedPath, borderPaint);
             }
 
             private void buildTooltipPath(
-                    android.graphics.Path p,
-                    float l, float t, float r, float b, float radius, float cx, float pw, float ph) {
+                    android.graphics.Path p, int side,
+                    float l, float t, float r, float b, float radius, float cx, float cy, float pw, float ph) {
                 p.reset();
                 float cr = Math.min(radius, Math.min((r - l) / 2f, (b - t) / 2f));
                 float pLeft = Math.max(l + cr, cx - pw / 2f);
                 float pRight = Math.min(r - cr, cx + pw / 2f);
+                float pTop = Math.max(t + cr, cy - pw / 2f);
+                float pBot = Math.min(b - cr, cy + pw / 2f);
 
                 p.moveTo(l + cr, t);
+                if (side == 1) {
+                    p.lineTo(pLeft, t);
+                    p.lineTo(cx, t - ph);
+                    p.lineTo(pRight, t);
+                }
                 p.lineTo(r - cr, t);
                 p.quadTo(r, t, r, t + cr);
+                if (side == 3) {
+                    p.lineTo(r, pTop);
+                    p.lineTo(r + ph, cy);
+                    p.lineTo(r, pBot);
+                }
                 p.lineTo(r, b - cr);
                 p.quadTo(r, b, r - cr, b);
-                p.lineTo(pRight, b);
-                p.lineTo(cx, b + ph);
-                p.lineTo(pLeft, b);
+                if (side == 0) {
+                    p.lineTo(pRight, b);
+                    p.lineTo(cx, b + ph);
+                    p.lineTo(pLeft, b);
+                }
                 p.lineTo(l + cr, b);
                 p.quadTo(l, b, l, b - cr);
+                if (side == 2) {
+                    p.lineTo(l, pBot);
+                    p.lineTo(l - ph, cy);
+                    p.lineTo(l, pTop);
+                }
                 p.lineTo(l, t + cr);
                 p.quadTo(l, t, l + cr, t);
                 p.close();
@@ -1447,6 +1494,31 @@ final class SceneHome {
         }
         dockLabel.setText(text);
         dockLabel.setVisibility(View.VISIBLE);
+        if (Extras.isDockVertical(dockPos)) {
+            // Floating label in the overlay, beside the tile (pointer towards it).
+            dockLabel.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+            Runnable alignSide = () -> {
+                if (tile.getWidth() <= 0) return;
+                int[] tl = new int[2], ol = new int[2];
+                tile.getLocationInWindow(tl);
+                overlay.getLocationInWindow(ol);
+                // getLocationInWindow includes the focus scale; use the unscaled layout box.
+                float sx = tile.getScaleX();
+                float tileW = tile.getWidth(), tileH = tile.getHeight();
+                float tileLeft = tl[0] - ol[0] + (tileW * sx - tileW) / 2f;
+                float tileTop = tl[1] - ol[1] + (tileH * sx - tileH) / 2f;
+                int lw = dockLabel.getWidth() > 0 ? dockLabel.getWidth() : dockLabel.getMeasuredWidth();
+                int lh = dockLabel.getHeight() > 0 ? dockLabel.getHeight() : dockLabel.getMeasuredHeight();
+                float gap = dp(6) + tileW * 0.07f;
+                float x = dockPos == Extras.DOCK_LEFT ? tileLeft + tileW + gap : tileLeft - gap - lw;
+                dockLabel.setTranslationX(x);
+                dockLabel.setTranslationY(tileTop + tileH / 2f - lh / 2f);
+            };
+            alignSide.run();
+            dockLabel.post(alignSide);
+            return;
+        }
         Runnable align = () -> {
             if (dockBox == null || dockBox.getWidth() <= 0 || tile.getWidth() <= 0) return;
             View parent = (View) tile.getParent();
@@ -1455,7 +1527,12 @@ final class SceneHome {
             float tileCenterInDock = rowLeft + tile.getLeft() + tile.getWidth() / 2f;
             float dockCenter = dockBox.getWidth() / 2f;
             dockLabel.setTranslationX(tileCenterInDock - dockCenter);
-            dockLabel.setTranslationY(rowTop - dockBox.getPaddingTop());
+            if (dockPos == Extras.DOCK_TOP) {
+                int rowBottom = parent != null ? parent.getBottom() : dockBox.getHeight() - dockBox.getPaddingBottom();
+                dockLabel.setTranslationY(rowBottom - (dockBox.getHeight() - dockBox.getPaddingBottom()));
+            } else {
+                dockLabel.setTranslationY(rowTop - dockBox.getPaddingTop());
+            }
         };
         if (dockBox != null && dockBox.getWidth() > 0 && tile.getWidth() > 0
                 && !dockBox.isLayoutRequested() && !tile.isLayoutRequested()) {
@@ -1464,6 +1541,108 @@ final class SceneHome {
             dockBox.post(align);
         } else {
             tile.post(align);
+        }
+    }
+
+    /**
+     * Places the dock (EXTRAS ! dock position) and moves the clock, top-right buttons, shelf and
+     * dashboard away from the dock's edge. thicknessPx is the dock's collapsed depth.
+     */
+    private void applyDockLayout(int pos, int thicknessPx) {
+        if (dockContainer == null || dockBox == null || dockLabel == null) return;
+        boolean vertical = Extras.isDockVertical(pos);
+        int ptrH = dp(5f);
+        int shift = thicknessPx + dp(14) + dp(6);
+
+        if (pos != dockPos) {
+            dockPos = pos;
+            tooltipSide = pos == Extras.DOCK_TOP ? 1 : pos == Extras.DOCK_LEFT ? 2 : pos == Extras.DOCK_RIGHT ? 3 : 0;
+            dockLabel.setVisibility(View.INVISIBLE);
+            dockLabel.setTranslationX(0f);
+            dockLabel.setTranslationY(0f);
+            if (dockLabel.getParent() instanceof ViewGroup) ((ViewGroup) dockLabel.getParent()).removeView(dockLabel);
+            dockContainer.removeView(dockBox);
+
+            dockContainer.setOrientation(LinearLayout.VERTICAL);
+            dockContainer.setGravity(vertical ? Gravity.CENTER_VERTICAL : Gravity.CENTER_HORIZONTAL);
+            dockBox.setOrientation(vertical ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+            dockBox.setGravity(vertical ? Gravity.TOP : Gravity.CENTER_HORIZONTAL);
+            LinearLayout.LayoutParams boxLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+
+            FrameLayout.LayoutParams dlp = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            switch (pos) {
+                case Extras.DOCK_TOP: {
+                    dlp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+                    dlp.topMargin = dp(14);
+                    dockContainer.addView(dockBox, boxLp);
+                    dockLabel.setPadding(dp(12), dp(5) + ptrH, dp(12), dp(5));
+                    LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(dp(340), dp(26) + ptrH);
+                    llp.topMargin = dp(5);
+                    dockContainer.addView(dockLabel, llp);
+                    break;
+                }
+                case Extras.DOCK_LEFT:
+                case Extras.DOCK_RIGHT: {
+                    boolean left = pos == Extras.DOCK_LEFT;
+                    dlp.gravity = Gravity.CENTER_VERTICAL | (left ? Gravity.START : Gravity.END);
+                    if (left) dlp.leftMargin = dp(14);
+                    else dlp.rightMargin = dp(14);
+                    dockContainer.addView(dockBox, boxLp);
+                    dockLabel.setPadding(dp(12) + (left ? ptrH : 0), dp(5), dp(12) + (left ? 0 : ptrH), dp(5));
+                    dockLabel.setMaxWidth(dp(300));
+                    overlay.addView(dockLabel, new FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT, dp(26), Gravity.TOP | Gravity.START));
+                    break;
+                }
+                default: {
+                    dlp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+                    dlp.bottomMargin = dp(14);
+                    dockLabel.setPadding(dp(12), dp(5), dp(12), dp(5) + ptrH);
+                    LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(dp(340), dp(26) + ptrH);
+                    llp.bottomMargin = dp(5);
+                    dockContainer.addView(dockLabel, llp);
+                    dockContainer.addView(dockBox, boxLp);
+                    break;
+                }
+            }
+            dockContainer.setLayoutParams(dlp);
+        }
+
+        // Everything else steps away from the dock's edge.
+        int insetL = pos == Extras.DOCK_LEFT ? shift : 0;
+        int insetR = pos == Extras.DOCK_RIGHT ? shift : 0;
+        int insetT = pos == Extras.DOCK_TOP ? shift : 0;
+        shelfLeftPx = dp(SHELF_LEFT_DP) + insetL;
+        shelfRightPx = dp(SHELF_LEFT_DP) + insetR;
+        shelfTopPx = dp(SHELF_TOP_DP) + insetT;
+        sceneView.setDockInsets(insetL, insetT, insetR);
+        boolean widthChanged = HomeDashboard.sceneWidthInsetPx != insetL + insetR;
+        HomeDashboard.sceneWidthInsetPx = insetL + insetR;
+        if (widthChanged && isDashboardShowing()) populateDashboard(true);
+
+        int pad = dp(SHELF_HEADER_GAP_DP);
+        if (shelfBox != null && shelfBox.getLayoutParams() instanceof FrameLayout.LayoutParams) {
+            FrameLayout.LayoutParams slp = (FrameLayout.LayoutParams) shelfBox.getLayoutParams();
+            slp.leftMargin = shelfLeftPx - pad;
+            slp.rightMargin = shelfRightPx - pad;
+            slp.topMargin = shelfTopPx;
+            shelfBox.setLayoutParams(slp);
+        }
+        if (dashboardBox != null && dashboardBox.getLayoutParams() instanceof FrameLayout.LayoutParams) {
+            FrameLayout.LayoutParams dblp = (FrameLayout.LayoutParams) dashboardBox.getLayoutParams();
+            dblp.leftMargin = shelfLeftPx;
+            dblp.rightMargin = shelfRightPx;
+            dblp.topMargin = shelfTopPx - dp(4);
+            dashboardBox.setLayoutParams(dblp);
+        }
+        if (topRightRow != null && topRightRow.getLayoutParams() instanceof FrameLayout.LayoutParams) {
+            int grow = dp(6);
+            FrameLayout.LayoutParams trlp = (FrameLayout.LayoutParams) topRightRow.getLayoutParams();
+            trlp.rightMargin = dp(40) - grow + insetR;
+            trlp.topMargin = dp(28) - grow + insetT;
+            topRightRow.setLayoutParams(trlp);
         }
     }
 
@@ -1482,9 +1661,22 @@ final class SceneHome {
         int padV = Math.max(dp(6), Math.round(dp(10) * scale));
         dockBox.setPadding(padH, padV, padH, padV);
 
-        int maxDockInnerW = Math.max(tileSize * 4, host.screenW - dp(72) - 2 * padH);
-        int maxColsFit = Math.max(4, (maxDockInnerW + tileGap) / (tileSize + tileGap));
-        int cols = Math.min(12, maxColsFit);
+        int pos = Extras.getDockPosition(host);
+        boolean vertical = Extras.isDockVertical(pos);
+        applyDockLayout(pos, vertical ? tileSize + 2 * padH : tileSize + 2 * padV);
+
+        int cols;
+        if (vertical) {
+            // "cols" = tiles per line; for a vertical dock a line is a column.
+            int maxDockInnerH = Math.max(tileSize * 3, host.screenH - dp(40) - 2 * padV);
+            int maxRowsFit = Math.max(3, (maxDockInnerH + tileGap) / (tileSize + tileGap));
+            cols = Math.min(12, maxRowsFit);
+            currentDockRows = cols;
+        } else {
+            int maxDockInnerW = Math.max(tileSize * 4, host.screenW - dp(72) - 2 * padH);
+            int maxColsFit = Math.max(4, (maxDockInnerW + tileGap) / (tileSize + tileGap));
+            cols = Math.min(12, maxColsFit);
+        }
         currentDockCols = cols;
 
         // Collect installed apps for Home and Other Apps
@@ -1553,18 +1745,32 @@ final class SceneHome {
         for (int i = 0; i < dockEntries.size(); i++) {
             if (i % cols == 0) {
                 row = new LinearLayout(host);
-                row.setOrientation(LinearLayout.HORIZONTAL);
-                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setOrientation(vertical ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+                row.setGravity(vertical ? Gravity.CENTER_HORIZONTAL : Gravity.CENTER_VERTICAL);
                 row.setClipChildren(false);
                 row.setClipToPadding(false);
                 LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                if (i > 0) rlp.topMargin = tileGap;
-                dockBox.addView(row, rlp);
+                if (vertical) {
+                    // Extra columns ("Other apps" expanded) grow away from the screen edge.
+                    if (pos == Extras.DOCK_RIGHT) {
+                        if (i > 0) rlp.rightMargin = tileGap;
+                        dockBox.addView(row, 0, rlp);
+                    } else {
+                        if (i > 0) rlp.leftMargin = tileGap;
+                        dockBox.addView(row, rlp);
+                    }
+                } else {
+                    if (i > 0) rlp.topMargin = tileGap;
+                    dockBox.addView(row, rlp);
+                }
             }
             View tile = buildDockTile(dockEntries.get(i), i, tileSize, scale);
             LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(tileSize, tileSize);
-            if (i % cols != 0) tlp.leftMargin = tileGap;
+            if (i % cols != 0) {
+                if (vertical) tlp.topMargin = tileGap;
+                else tlp.leftMargin = tileGap;
+            }
             row.addView(tile, tlp);
             dockTiles.add(tile);
         }
@@ -1652,7 +1858,9 @@ final class SceneHome {
                 focusedDockIdx = index;
                 host.prefs.edit().putInt("last_dock_idx", index).apply();
                 if (moveDockIdx >= 0) {
-                    updateDockTooltip(v, I18n.s(host,
+                    updateDockTooltip(v, Extras.isDockVertical(dockPos)
+                            ? I18n.s(host, "Move " + a.label + "  ·  Up/Down, OK when done", null)
+                            : I18n.s(host,
                             "Move " + a.label + "  ·  Left/Right, OK when done",
                             a.label + " taşınıyor  ·  Sol/Sağ, bitince OK"));
                 } else {
@@ -2528,18 +2736,22 @@ final class SceneHome {
 
         if (moveDockIdx >= 0) {
             int cols = Math.max(1, currentDockCols);
+            boolean vert = Extras.isDockVertical(dockPos);
+            // Vertical dock: Up/Down move along a column, Left/Right jump a column (columns grow
+            // away from the screen edge, so on a Right dock "away" is Left).
+            int colDir = dockPos == Extras.DOCK_RIGHT ? -1 : 1;
             switch (k) {
                 case KeyEvent.KEYCODE_DPAD_LEFT:
-                    if (down) moveDockBy(-1);
+                    if (down) moveDockBy(vert ? -cols * colDir : -1);
                     return true;
                 case KeyEvent.KEYCODE_DPAD_RIGHT:
-                    if (down) moveDockBy(1);
+                    if (down) moveDockBy(vert ? cols * colDir : 1);
                     return true;
                 case KeyEvent.KEYCODE_DPAD_UP:
-                    if (down) moveDockBy(-cols);
+                    if (down) moveDockBy(vert ? -1 : -cols);
                     return true;
                 case KeyEvent.KEYCODE_DPAD_DOWN:
-                    if (down) moveDockBy(cols);
+                    if (down) moveDockBy(vert ? 1 : cols);
                     return true;
                 case KeyEvent.KEYCODE_DPAD_CENTER:
                 case KeyEvent.KEYCODE_ENTER:
@@ -2592,6 +2804,8 @@ final class SceneHome {
                         else moonBtn.requestFocus();
                     } else if (f == weatherBtn) {
                         moonBtn.requestFocus();
+                    } else if (dockPos == Extras.DOCK_RIGHT) {
+                        focusDock(focusedDockIdx);
                     }
                 }
                 return true;
@@ -2619,18 +2833,27 @@ final class SceneHome {
                 }
                 return true;
             }
-            if (k == KeyEvent.KEYCODE_DPAD_UP) return true;
+            if (k == KeyEvent.KEYCODE_DPAD_UP) {
+                if (down && dockPos == Extras.DOCK_TOP) focusDock(focusedDockIdx);
+                return true;
+            }
         }
 
         // Home Dashboard navigation
         int dbIdx = dashboardCards.indexOf(f);
         if (dbIdx >= 0) {
             if (k == KeyEvent.KEYCODE_DPAD_LEFT) {
-                if (down && dbIdx > 0) dashboardCards.get(dbIdx - 1).requestFocus();
+                if (down) {
+                    if (dbIdx > 0) dashboardCards.get(dbIdx - 1).requestFocus();
+                    else if (dockPos == Extras.DOCK_LEFT) focusDock(focusedDockIdx);
+                }
                 return true;
             }
             if (k == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                if (down && dbIdx + 1 < dashboardCards.size()) dashboardCards.get(dbIdx + 1).requestFocus();
+                if (down) {
+                    if (dbIdx + 1 < dashboardCards.size()) dashboardCards.get(dbIdx + 1).requestFocus();
+                    else if (dockPos == Extras.DOCK_RIGHT) focusDock(focusedDockIdx);
+                }
                 return true;
             }
             if (k == KeyEvent.KEYCODE_DPAD_UP) {
@@ -2638,7 +2861,7 @@ final class SceneHome {
                 return true;
             }
             if (k == KeyEvent.KEYCODE_DPAD_DOWN) {
-                if (down) focusDock(focusedDockIdx);
+                if (down && dockPos != Extras.DOCK_TOP) focusDock(focusedDockIdx);
                 return true;
             }
         }
@@ -2647,11 +2870,17 @@ final class SceneHome {
         int sIdx = shelfCards.indexOf(f);
         if (sIdx >= 0) {
             if (k == KeyEvent.KEYCODE_DPAD_LEFT) {
-                if (down && sIdx > 0) shelfCards.get(sIdx - 1).requestFocus();
+                if (down) {
+                    if (sIdx > 0) shelfCards.get(sIdx - 1).requestFocus();
+                    else if (dockPos == Extras.DOCK_LEFT) focusDock(focusedDockIdx);
+                }
                 return true;
             }
             if (k == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                if (down && sIdx + 1 < shelfCards.size()) shelfCards.get(sIdx + 1).requestFocus();
+                if (down) {
+                    if (sIdx + 1 < shelfCards.size()) shelfCards.get(sIdx + 1).requestFocus();
+                    else if (dockPos == Extras.DOCK_RIGHT) focusDock(focusedDockIdx);
+                }
                 return true;
             }
             if (k == KeyEvent.KEYCODE_DPAD_UP) {
@@ -2659,14 +2888,16 @@ final class SceneHome {
                 return true;
             }
             if (k == KeyEvent.KEYCODE_DPAD_DOWN) {
-                if (down) focusDock(focusedDockIdx);
+                if (down && dockPos != Extras.DOCK_TOP) focusDock(focusedDockIdx);
                 return true;
             }
         }
 
-        // Bottom Dock navigation
+        // Dock navigation
         int dIdx = dockTiles.indexOf(f);
         if (dIdx >= 0) {
+            if (dockPos == Extras.DOCK_TOP) return dockKeyTop(k, down, f, dIdx);
+            if (Extras.isDockVertical(dockPos)) return dockKeyVertical(k, down, f, dIdx);
             int cols = Math.max(1, currentDockCols);
             if (k == KeyEvent.KEYCODE_DPAD_LEFT) {
                 if (down && dIdx > 0) focusDock(dIdx - 1);
@@ -2682,12 +2913,8 @@ final class SceneHome {
                         // Moved into the continue-watching popup above the tile.
                     } else if (dIdx >= cols) {
                         focusDock(dIdx - cols);
-                    } else if (isDashboardShowing() && !dashboardCards.isEmpty()) {
-                        dashboardCards.get(Math.min(dashboardCards.size() - 1, Math.max(0, (dIdx * dashboardCards.size()) / Math.max(1, dockTiles.size())))).requestFocus();
-                    } else if (shelfBox.getVisibility() == View.VISIBLE && !shelfCards.isEmpty()) {
-                        shelfCards.get(0).requestFocus();
                     } else {
-                        moonBtn.requestFocus();
+                        leaveDock(f, dIdx);
                     }
                 }
                 return true;
@@ -2704,6 +2931,86 @@ final class SceneHome {
             }
         }
 
+        return false;
+    }
+
+    /**
+     * Moves focus from the dock into the rest of the home screen: the app's watch popup row
+     * first, then the dashboard, the Keep Watching shelf, and finally the top-right buttons.
+     */
+    private void leaveDock(View f, int dIdx) {
+        if (focusWatchPopupRow(f)) {
+            // Moved into the continue-watching popup next to the tile.
+        } else if (isDashboardShowing() && !dashboardCards.isEmpty()) {
+            dashboardCards.get(Math.min(dashboardCards.size() - 1, Math.max(0, (dIdx * dashboardCards.size()) / Math.max(1, dockTiles.size())))).requestFocus();
+        } else if (shelfBox.getVisibility() == View.VISIBLE && !shelfCards.isEmpty()) {
+            shelfCards.get(dockPos == Extras.DOCK_RIGHT ? shelfCards.size() - 1 : 0).requestFocus();
+        } else if (moonBtn != null) {
+            moonBtn.requestFocus();
+        }
+    }
+
+    /** Dock at the top: rows stack downwards, Down from the last row leaves the dock. */
+    private boolean dockKeyTop(int k, boolean down, View f, int dIdx) {
+        int cols = Math.max(1, currentDockCols);
+        int curRow = dIdx / cols;
+        int totalRows = (dockTiles.size() + cols - 1) / cols;
+        switch (k) {
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+                if (down && dIdx > 0) focusDock(dIdx - 1);
+                return true;
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                if (down && dIdx + 1 < dockTiles.size()) focusDock(dIdx + 1);
+                return true;
+            case KeyEvent.KEYCODE_DPAD_UP:
+                if (down && dIdx >= cols) focusDock(dIdx - cols);
+                return true;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                if (down) {
+                    if (curRow + 1 < totalRows) focusDock(Math.min(dIdx + cols, dockTiles.size() - 1));
+                    else leaveDock(f, dIdx);
+                }
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * Dock on the left or right: Up/Down move along a column; the direction towards the middle
+     * of the screen goes to the next column ("Other apps" expanded) or leaves the dock.
+     */
+    private boolean dockKeyVertical(int k, boolean down, View f, int dIdx) {
+        int rows = Math.max(1, currentDockRows);
+        int n = dockTiles.size();
+        int inRow = dIdx % rows;
+        boolean leftDock = dockPos == Extras.DOCK_LEFT;
+        int inward = leftDock ? KeyEvent.KEYCODE_DPAD_RIGHT : KeyEvent.KEYCODE_DPAD_LEFT;
+        int outward = leftDock ? KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT;
+        if (k == KeyEvent.KEYCODE_DPAD_UP) {
+            if (down && inRow > 0) focusDock(dIdx - 1);
+            return true;
+        }
+        if (k == KeyEvent.KEYCODE_DPAD_DOWN) {
+            if (down && inRow < rows - 1 && dIdx + 1 < n) focusDock(dIdx + 1);
+            return true;
+        }
+        if (k == inward) {
+            if (down) {
+                if (dIdx + rows < n) {
+                    focusDock(dIdx + rows);
+                } else if ((dIdx / rows + 1) * rows < n) {
+                    focusDock(n - 1);  // next column is shorter than this row
+                } else {
+                    leaveDock(f, dIdx);
+                }
+            }
+            return true;
+        }
+        if (k == outward) {
+            if (down && dIdx >= rows) focusDock(dIdx - rows);
+            return true;
+        }
         return false;
     }
 }
