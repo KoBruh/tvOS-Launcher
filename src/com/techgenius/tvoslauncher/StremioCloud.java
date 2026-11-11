@@ -77,7 +77,7 @@ final class StremioCloud extends WatchCloud {
                 // Signing out locally is what matters.
             }
         }
-        SharedPreferences.Editor e = prefs.edit().remove(K_AUTH).remove(K_LIBRARY);
+        SharedPreferences.Editor e = prefs.edit().remove(K_AUTH);
         clearCache(e);
         e.apply();
     }
@@ -119,48 +119,94 @@ final class StremioCloud extends WatchCloud {
     // ------------------------------------------------------------------ continue watching
 
     @Override List<Item> continueWatching(int profile, int max) throws Exception {
-        List<Item> out = sortedItems(recentLibrary(), true, max, null);
+        List<Item> out = sortedItems(recentLibrary(), max);
         saveCache(profile, out);
         return out;
     }
 
-    static final String K_LIBRARY = "centre_library";
+    static final String K_EXPLORE = "popup_explore";
+    private static final String K_EXPLORE_AT = "popup_explore_at";
+    /** Popular lists change slowly: refetch at most every 6 hours. */
+    private static final long EXPLORE_TTL_MS = 6 * 60 * 60_000L;
+    private static final String CINEMETA = "https://v3-cinemeta.strem.io/catalog/";
 
     /**
-     * Stremio Centre: continue watching and the most recently changed library titles from a
-     * single fetch. Returns {continueWatching, library}; the library excludes titles already in
-     * continue watching. Both are cached for an instant panel after a restart.
+     * Dock popup rows: {continue watching, popular}. Popular is what opens Stremio's Board
+     * (Cinemeta "Popular" movies and series, interleaved), minus titles already in continue
+     * watching. A failure fetching Popular keeps its cached copy.
      */
-    List<Item>[] centreRows(int maxCw, int maxLib) throws Exception {
-        JSONArray lib = recentLibrary();
-        List<Item> cw = sortedItems(lib, true, maxCw, null);
+    List<Item>[] hubRows(int maxCw, int maxExplore) throws Exception {
+        List<Item> cw = continueWatching(profile(), maxCw);
+        List<Item> ex;
+        try {
+            ex = explore(maxExplore);
+        } catch (Exception e) {
+            ex = loadExploreCache();
+        }
         java.util.Set<String> skip = new java.util.HashSet<>();
         for (Item it : cw) skip.add(it.contentId);
-        List<Item> rest = sortedItems(lib, false, maxLib, skip);
-        saveCache(profile(), cw);
-        saveCacheKey(K_LIBRARY, rest);
+        List<Item> filtered = new ArrayList<>();
+        if (ex != null) for (Item it : ex) if (!skip.contains(it.contentId)) filtered.add(it);
         @SuppressWarnings("unchecked")
-        List<Item>[] r = new List[]{cw, rest};
+        List<Item>[] r = new List[]{cw, filtered};
         return r;
     }
 
-    List<Item> loadLibraryCache() {
-        return loadCacheKey(K_LIBRARY);
+    List<Item> loadExploreCache() {
+        return loadCacheKey(K_EXPLORE);
     }
 
-    /** Library items newest first: continue-watching ones, or the rest of the real library. */
-    private static List<Item> sortedItems(JSONArray lib, boolean continueWatching, int max, java.util.Set<String> skip) {
+    /** Cinemeta popular movies + series, alternating, cached for {@link #EXPLORE_TTL_MS}. */
+    private List<Item> explore(int max) throws Exception {
+        long at = prefs.getLong(K_EXPLORE_AT, 0L);
+        List<Item> cached = loadExploreCache();
+        if (cached != null && !cached.isEmpty() && System.currentTimeMillis() - at < EXPLORE_TTL_MS) return cached;
+        List<Item> movies = catalog("movie", max), series = catalog("series", max);
+        List<Item> out = new ArrayList<>();
+        for (int i = 0; out.size() < max && (i < movies.size() || i < series.size()); i++) {
+            if (i < movies.size()) out.add(movies.get(i));
+            if (i < series.size() && out.size() < max) out.add(series.get(i));
+        }
+        if (!out.isEmpty()) {
+            saveCacheKey(K_EXPLORE, out);
+            prefs.edit().putLong(K_EXPLORE_AT, System.currentTimeMillis()).apply();
+        }
+        return out;
+    }
+
+    private static List<Item> catalog(String type, int max) throws Exception {
+        JSONObject o = new JSONObject(get(CINEMETA + type + "/top.json"));
+        JSONArray metas = o.optJSONArray("metas");
+        List<Item> out = new ArrayList<>();
+        if (metas == null) return out;
+        for (int i = 0; i < metas.length() && out.size() < max; i++) {
+            JSONObject m = metas.optJSONObject(i);
+            if (m == null) continue;
+            Item it = new Item();
+            it.contentId = m.optString("id", m.optString("imdb_id", ""));
+            if (it.contentId.isEmpty()) continue;
+            it.type = m.optString("type", type);
+            it.title = m.optString("name", "");
+            it.poster = m.optString("poster", "");
+            it.videoId = "";
+            out.add(it);
+        }
+        return out;
+    }
+
+    /** Continue-watching library items, newest first. */
+    private static List<Item> sortedItems(JSONArray lib, int max) {
         List<Item> out = new ArrayList<>();
         List<Long> mtimes = new ArrayList<>();
         for (int i = 0; i < lib.length(); i++) {
             JSONObject o = lib.optJSONObject(i);
             if (o == null) continue;
-            if (continueWatching ? !inContinueWatching(o) : !inLibrary(o)) continue;
+            if (!inContinueWatching(o)) continue;
             JSONObject st = o.optJSONObject("state");
             if (st == null) st = new JSONObject();
             Item it = new Item();
             it.contentId = o.optString("_id", "");
-            if (it.contentId.isEmpty() || (skip != null && skip.contains(it.contentId))) continue;
+            if (it.contentId.isEmpty()) continue;
             it.type = o.optString("type", "movie");
             it.title = o.optString("name", "");
             it.poster = o.isNull("poster") ? "" : o.optString("poster", "");
@@ -168,13 +214,13 @@ final class StremioCloud extends WatchCloud {
             it.position = st.optLong("timeOffset");
             it.duration = st.optLong("duration");
             // Stremio sets the offset to 1 ms when it moves on to the next, unstarted episode.
-            it.upNext = continueWatching && it.position <= 1_000L;
+            it.upNext = it.position <= 1_000L;
             if (it.upNext) it.position = 0;
             long mtime = time(o.opt("_mtime"));
             long watched = time(st.opt("lastWatched"));
             it.lastWatched = watched > 0 ? watched : mtime;
             episode(it);
-            // Newest first by modification time, like Stremio's own rows.
+            // Newest first by modification time, like Stremio's own continue watching row.
             int at = 0;
             while (at < mtimes.size() && mtimes.get(at) >= mtime) at++;
             out.add(at, it);
@@ -182,13 +228,6 @@ final class StremioCloud extends WatchCloud {
         }
         if (out.size() > max) out = new ArrayList<>(out.subList(0, max));
         return out;
-    }
-
-    /** A title the user added to their library (not removed, not a temporary "just watched" one). */
-    private static boolean inLibrary(JSONObject o) {
-        String type = o.optString("type", "");
-        if (!type.equals("movie") && !type.equals("series")) return false;
-        return !o.optBoolean("removed", false) && !o.optBoolean("temp", false);
     }
 
     /** stremio:///detail/{type}/{id}: the title's page in Stremio. */

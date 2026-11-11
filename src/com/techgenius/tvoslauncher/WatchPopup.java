@@ -42,6 +42,8 @@ import io.nayuki.qrcodegen.QrCode;
 final class WatchPopup {
 
     private static final int MAX_ITEMS = 5;
+    /** Stremio: continue watching length and the Popular row below it. */
+    private static final int MAX_STREMIO_CW = 10, MAX_EXPLORE = 16;
     private static final long REFRESH_AFTER_MS = 60_000L;  // don't re-pull on every quick resume
     /** QR size: small enough that the sign-in box stays between the clock and the dock. */
     private static final float QR_DP = 96;
@@ -55,10 +57,14 @@ final class WatchPopup {
     /** Own thread: QR polling must never queue behind the launcher's wallpaper/blur work on host.io. */
     private final ExecutorService exec = Executors.newSingleThreadExecutor();
     /** contentId -> 16:9 thumbnail. */
-    private final LruCache<String, Bitmap> thumbs = new LruCache<>(16);
+    private final LruCache<String, Bitmap> thumbs = new LruCache<>(28);
 
     private final LinearLayout panel;
     private final List<View> cards = new ArrayList<>();
+    /** Stremio only: the "Popular on Stremio" row under continue watching (poster style). */
+    private final List<View> exCards = new ArrayList<>();
+    private List<WatchCloud.Item> exItems;
+    private final boolean stremio;
     private final Map<String, ImageView> thumbViews = new HashMap<>();
     /** Glass box for the sign-in / status message, when shown instead of cards. */
     private View statusBox;
@@ -99,6 +105,8 @@ final class WatchPopup {
         this.cloud = cloud;
         boolean signedIn = cloud.isSignedIn();
         this.items = signedIn ? cloud.loadCache(cloud.profile()) : null;
+        this.stremio = cloud instanceof StremioCloud;
+        this.exItems = stremio ? ((StremioCloud) cloud).loadExploreCache() : null;
         this.profiles = signedIn ? cloud.loadProfilesCache() : new ArrayList<>();
 
         // No panel background: like the shelf, the header floats over the wallpaper and the
@@ -179,7 +187,8 @@ final class WatchPopup {
      */
     boolean focusRow(View tile) {
         if (!visible || tile != anchor) return false;
-        View target = !cards.isEmpty() ? cards.get(0) : selectedProfileButton();
+        View target = entryCard();
+        if (target == null) target = selectedProfileButton();
         if (target == null) return false;
         target.requestFocus();
         return true;
@@ -188,6 +197,7 @@ final class WatchPopup {
     /** The wallpaper behind the glass changed. */
     void invalidateGlass() {
         for (View c : cards) c.invalidate();
+        for (View c : exCards) c.invalidate();
         for (View g : ghosts) g.invalidate();
         if (statusBox != null) statusBox.invalidate();
         if (profileBar != null) profileBar.invalidate();
@@ -241,7 +251,7 @@ final class WatchPopup {
 
     private void hideIfFocusLeft() {
         View f = host.getCurrentFocus();
-        if (f != null && (f == anchor || f == panel || cards.contains(f) || profileButtons.contains(f))) return;
+        if (f != null && (f == anchor || f == panel || cards.contains(f) || exCards.contains(f) || profileButtons.contains(f))) return;
         hide();
     }
 
@@ -271,11 +281,6 @@ final class WatchPopup {
         // scan, look away from the tile, and still come back signed in.
     }
 
-    /** Stremio Centre took over the home screen. */
-    void forceHide() {
-        if (visible) hideImmediate();
-    }
-
     private void hideImmediate() {
         visible = false;
         panel.animate().cancel();
@@ -296,6 +301,7 @@ final class WatchPopup {
         exec.execute(() -> {
             List<WatchCloud.Profile> ps = null;
             List<WatchCloud.Item> result = null;
+            List<WatchCloud.Item> ex = null;
             boolean signedOut = false, failed = false;
             try {
                 try {
@@ -312,7 +318,13 @@ final class WatchPopup {
                     profile = ps.get(0).index;
                     cloud.setProfile(profile);
                 }
-                result = cloud.continueWatching(profile, MAX_ITEMS);
+                if (stremio) {
+                    List<WatchCloud.Item>[] rows = ((StremioCloud) cloud).hubRows(MAX_STREMIO_CW, MAX_EXPLORE);
+                    result = rows[0];
+                    ex = rows[1];
+                } else {
+                    result = cloud.continueWatching(profile, MAX_ITEMS);
+                }
             } catch (WatchCloud.NotSignedInException e) {
                 signedOut = true;
             } catch (Exception e) {
@@ -320,6 +332,7 @@ final class WatchPopup {
             }
             final List<WatchCloud.Profile> p = ps;
             final List<WatchCloud.Item> r = result;
+            final List<WatchCloud.Item> exr = ex;
             final boolean so = signedOut, fl = failed;
             host.handler.post(() -> {
                 if (p != null) profiles = p;
@@ -332,6 +345,7 @@ final class WatchPopup {
                     loadFailed = true;  // keep showing the cached row, if any
                 } else {
                     items = r;
+                    if (exr != null) exItems = exr;
                     loadFailed = false;
                     lastLoad = System.currentTimeMillis();
                 }
@@ -453,8 +467,9 @@ final class WatchPopup {
         // If the user is inside the popup when it redraws, keep focus on the same card or profile.
         View f = host.getCurrentFocus();
         int focusedSlot = cards.indexOf(f);
+        int focusedExSlot = exCards.indexOf(f);
         int focusedProfile = profileButtons.contains(f) ? (Integer) f.getTag() : -1;
-        boolean keepFocus = focusedSlot >= 0 || focusedProfile >= 0 || f == panel;
+        boolean keepFocus = focusedSlot >= 0 || focusedExSlot >= 0 || focusedProfile >= 0 || f == panel;
         if (keepFocus && f != panel) {
             // Park focus on the panel while its children are replaced; otherwise Android would
             // hand it to some other view (e.g. a dock tile) for a moment.
@@ -463,6 +478,7 @@ final class WatchPopup {
         }
         panel.removeAllViews();
         cards.clear();
+        exCards.clear();
         thumbViews.clear();
         // The profile bar is kept across redraws (see profileBarView) so its slide isn't cut short.
         statusBox = null;
@@ -474,7 +490,7 @@ final class WatchPopup {
             // Turkish: both "Nuvio" and "Stremio" end in a back vowel, so "'ya" fits each.
             addHeader(I18n.s(host, "Sign in to " + cloud.name(), cloud.name() + "'ya giriş yap"), 0);
             renderLogin();
-        } else if (items != null && !items.isEmpty()) {
+        } else if ((items != null && !items.isEmpty()) || (items != null && hasExplore())) {
             renderItems(cw);
         } else if (items == null && !loadFailed) {
             renderGhosts(cw);  // this profile's row hasn't loaded yet
@@ -495,6 +511,9 @@ final class WatchPopup {
         if (slider != null) tintProfileNames();  // the selected profile's name may have changed
         if (keepFocus) {
             View target = focusedProfile >= 0 ? profileButton(focusedProfile) : null;
+            if (target == null && focusedExSlot >= 0 && !exCards.isEmpty()) {
+                target = exCards.get(Math.min(focusedExSlot, exCards.size() - 1));
+            }
             if (target == null && !cards.isEmpty()) {
                 target = cards.get(Math.min(Math.max(0, focusedSlot), cards.size() - 1));
             }
@@ -514,17 +533,26 @@ final class WatchPopup {
      */
     private void wireFocus() {
         View selected = selectedProfileButton();
-        int belowProfiles = !cards.isEmpty() ? cards.get(0).getId()
+        View first = !cards.isEmpty() ? cards.get(0) : !exCards.isEmpty() ? exCards.get(0) : null;
+        int belowProfiles = first != null ? first.getId()
                 : anchor != null ? anchor.getId() : View.NO_ID;
         // EXTRAS ! dock position: the edge of the row that faces the dock leads back to the tile.
         int pos = home.dockPos;
         int back = anchor != null ? anchor.getId() : View.NO_ID;
         for (int i = 0; i < cards.size(); i++) {
             View c = cards.get(i);
-            if (i == 0) c.setNextFocusLeftId(pos == Extras.DOCK_LEFT && back != View.NO_ID ? back : c.getId());
-            if (i == cards.size() - 1) c.setNextFocusRightId(pos == Extras.DOCK_RIGHT && back != View.NO_ID ? back : c.getId());
-            if (anchor != null) c.setNextFocusDownId(anchor.getId());
+            wireEdges(c, i, cards.size(), pos, back);
+            if (!exCards.isEmpty()) c.setNextFocusDownId(exCards.get(Math.min(i, exCards.size() - 1)).getId());
+            else if (anchor != null) c.setNextFocusDownId(anchor.getId());
             c.setNextFocusUpId(selected != null ? selected.getId()
+                    : (pos == Extras.DOCK_TOP && back != View.NO_ID ? back : c.getId()));
+        }
+        for (int i = 0; i < exCards.size(); i++) {
+            View c = exCards.get(i);
+            wireEdges(c, i, exCards.size(), pos, back);
+            if (anchor != null) c.setNextFocusDownId(pos == Extras.DOCK_TOP ? c.getId() : anchor.getId());
+            if (!cards.isEmpty()) c.setNextFocusUpId(cards.get(Math.min(i, cards.size() - 1)).getId());
+            else c.setNextFocusUpId(selected != null ? selected.getId()
                     : (pos == Extras.DOCK_TOP && back != View.NO_ID ? back : c.getId()));
         }
         for (int i = 0; i < profileButtons.size(); i++) {
@@ -535,9 +563,27 @@ final class WatchPopup {
             b.setNextFocusDownId(belowProfiles);
         }
         if (anchor != null) {
-            View up = !cards.isEmpty() ? cards.get(0) : selected;
+            View up = entryCard();
+            if (up == null) up = selected;
             anchor.setNextFocusUpId(up != null ? up.getId() : View.NO_ID);
         }
+    }
+
+    private static void wireEdges(View c, int i, int n, int pos, int back) {
+        if (i == 0) c.setNextFocusLeftId(pos == Extras.DOCK_LEFT && back != View.NO_ID ? back : c.getId());
+        if (i == n - 1) c.setNextFocusRightId(pos == Extras.DOCK_RIGHT && back != View.NO_ID ? back : c.getId());
+    }
+
+    /** First card when entering from the dock: the row nearest a bottom dock, else the top row. */
+    private View entryCard() {
+        if (home.dockPos == Extras.DOCK_BOTTOM && !exCards.isEmpty()) return exCards.get(0);
+        if (!cards.isEmpty()) return cards.get(0);
+        return !exCards.isEmpty() ? exCards.get(0) : null;
+    }
+
+    /** The Popular row shows (Stremio, poster style, list loaded). */
+    private boolean hasExplore() {
+        return stremio && Extras.isCwPosters(host) && exItems != null && !exItems.isEmpty();
     }
 
     private void renderLogin() {
@@ -617,7 +663,7 @@ final class WatchPopup {
 
     /** Whether the open row is big posters that use the clock's space. */
     boolean coversClock() {
-        return visible && bigPosters() && !cards.isEmpty();
+        return visible && bigPosters() && (!cards.isEmpty() || !exCards.isEmpty());
     }
 
     /** Lowest the poster row may reach: above a bottom dock (and its name label), else near the screen's bottom. */
@@ -643,34 +689,62 @@ final class WatchPopup {
 
     private void renderItems(String header) {
         posters = Extras.isCwPosters(host);
+        boolean hasCw = items != null && !items.isEmpty();
+        boolean explore = hasExplore();
+        int rows = (hasCw ? 1 : 0) + (explore ? 1 : 0);
+        if (rows == 0) return;
         // Same card size and spacing as the Keep Watching shelf.
         int cardW = dp(SceneHome.SHELF_CARD_W_DP), cardH = dp(SceneHome.SHELF_CARD_H_DP),
                 gap = dp(SceneHome.SHELF_CARD_GAP_DP);
-        if (posters) {
-            // Tall 2:3 posters between the clock and the dock / screen bottom.
-            int avail = posterBottom() - posterTop() - dp(22) - 2 * dp(SceneHome.SHELF_HEADER_GAP_DP);
-            cardH = Math.max(dp(110), Math.min(bigPosters() ? dp(230) : dp(200), avail));
-            cardW = Math.round(cardH * 2f / 3f);
-            gap = dp(10);
-        }
         // Room around the cards so the focus lift/scale isn't clipped by the scroller. Equal to
         // the shelf's header-to-cards gap, so header and cards land exactly where the shelf's do.
         int pad = dp(SceneHome.SHELF_HEADER_GAP_DP);
+        if (posters) {
+            // 2:3 posters (with title lines under them) between the clock and the dock /
+            // screen bottom, shared between the rows.
+            int avail = posterBottom() - posterTop() - rows * (dp(22) + 2 * pad) - (rows - 1) * dp(6);
+            int perRow = avail / rows;
+            int textH = dp(SceneHome.POSTER_TEXT_H_DP);
+            cardH = Math.max(dp(110), Math.min((bigPosters() ? dp(230) : dp(200)) + textH, perRow));
+            cardW = Math.round((cardH - textH) * 2f / 3f);
+            gap = dp(10);
+        }
         rowInset = pad;
 
-        addHeader(header, pad);
+        String pkg = anchorPkg != null ? anchorPkg : cloud.defaultPackage();
+        String appName = host.appLabel(pkg);
+        if (hasCw) {
+            addHeader(header, pad);
+            panel.addView(buildRow(items, cards, cardW, cardH, gap, pad, pkg, appName));
+        }
+        if (explore) {
+            String exHeader = I18n.s(host, "Popular on Stremio", null);
+            if (!hasCw) {
+                addHeader(exHeader, pad);
+            } else {
+                TextView h = label(exHeader, 11.5f, 0xC7F4F4F6, "semibold");
+                h.setShadowLayer(dp(6), 0, dp(1), 0x80000000);
+                LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                hlp.leftMargin = pad + dp(2);
+                hlp.topMargin = dp(6);
+                panel.addView(h, hlp);
+            }
+            panel.addView(buildRow(exItems, exCards, cardW, cardH, gap, pad, pkg, appName));
+        }
+    }
 
+    /** One horizontally scrolling row of cards, clipped to the space left free by the dock. */
+    private View buildRow(List<WatchCloud.Item> list, List<View> into, int cardW, int cardH, int gap, int pad,
+                          String pkg, String appName) {
         LinearLayout row = new LinearLayout(host);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setClipChildren(false);
         row.setClipToPadding(false);
         // The scroller clips the row to the row's own bounds, so the room must be inside the row.
         row.setPadding(pad, pad, pad, pad);
-
-        String pkg = anchorPkg != null ? anchorPkg : cloud.defaultPackage();
-        String appName = host.appLabel(pkg);
-        for (int i = 0; i < items.size(); i++) {
-            WatchCloud.Item it = items.get(i);
+        for (int i = 0; i < list.size(); i++) {
+            WatchCloud.Item it = list.get(i);
             View.OnFocusChangeListener fl = (v, has) -> {
                 if (!has) overlay.post(this::hideIfFocusLeft);
             };
@@ -681,7 +755,7 @@ final class WatchPopup {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(cardW, cardH);
             if (i > 0) lp.leftMargin = gap;
             row.addView(card, lp);
-            cards.add(card);
+            into.add(card);
 
             ImageView thumb = card.findViewWithTag(SceneHome.WATCH_THUMB);
             if (thumb != null) {
@@ -689,18 +763,19 @@ final class WatchPopup {
                 if (thumbs.get(thumbKey(it)) == null) loadThumb(it);
             }
         }
-        // Three cards fit across the screen like the shelf; more scroll sideways as you move.
+        // More cards scroll sideways as you move.
         HorizontalScrollView scroll = new HorizontalScrollView(host);
         scroll.setHorizontalScrollBarEnabled(false);
         scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
         scroll.setFocusable(false);
         scroll.addView(row, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        int n = items.size();
+        int n = list.size();
         int contentW = n * cardW + (n - 1) * gap + 2 * pad;
         int maxW = host.screenW - home.shelfLeftPx - home.shelfRightPx + 2 * pad;
-        panel.addView(scroll, new LinearLayout.LayoutParams(Math.min(contentW, maxW),
+        scroll.setLayoutParams(new LinearLayout.LayoutParams(Math.min(contentW, maxW),
                 ViewGroup.LayoutParams.WRAP_CONTENT));
+        return scroll;
     }
 
     private SceneHome.WatchCardData cardData(WatchCloud.Item it, String pkg, String appName) {
@@ -732,7 +807,12 @@ final class WatchPopup {
             if (sb.length() > 0) sb.append(" · ");
             sb.append(leftMin).append(I18n.s(host, " min left", " dk kaldı"));
         }
-        if (sb.length() == 0) sb.append(I18n.s(host, "Resume playback", "Oynatmaya devam et"));
+        if (sb.length() == 0) {
+            // Popular row titles haven't been started: just say what they are.
+            boolean started = it.position > 0 || it.duration > 0;
+            sb.append(started ? I18n.s(host, "Resume playback", "Oynatmaya devam et")
+                    : it.isSeries() ? I18n.s(host, "Series", "Dizi") : I18n.s(host, "Movie", "Film"));
+        }
         return sb.toString();
     }
 
@@ -768,7 +848,9 @@ final class WatchPopup {
     private void open(WatchCloud.Item it) {
         String pkg = anchorPkg != null ? anchorPkg : cloud.defaultPackage();
         PackageManager pm = host.getPackageManager();
-        Intent i = Suggestions.view(cloud.deepLink(it), pkg);
+        boolean started = it.position > 0 || it.upNext;
+        String link = stremio && !started ? StremioCloud.titleLink(it) : cloud.deepLink(it);
+        Intent i = Suggestions.view(link, pkg);
         if (i.resolveActivity(pm) != null && Suggestions.start(host, i)) return;
         Intent launch = pm.getLeanbackLaunchIntentForPackage(pkg);
         if (launch == null) launch = pm.getLaunchIntentForPackage(pkg);
@@ -784,7 +866,7 @@ final class WatchPopup {
     private void position() {
         int any = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
         panel.measure(any, any);
-        int shelfCardsBottom = posters && !cards.isEmpty() ? posterBottom()
+        int shelfCardsBottom = posters && (!cards.isEmpty() || !exCards.isEmpty()) ? posterBottom()
                 : home.shelfTopPx + headerTextH + dp(SceneHome.SHELF_HEADER_GAP_DP) + dp(SceneHome.SHELF_CARD_H_DP);
         int contentBottom = panel.getMeasuredHeight() - rowInset;  // the card row has rowInset below it
         // Placed with layout margins (not translation) so translationY stays free for the

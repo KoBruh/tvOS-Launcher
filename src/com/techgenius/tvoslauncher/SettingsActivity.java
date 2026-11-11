@@ -911,27 +911,10 @@ public class SettingsActivity extends Activity {
     }
 
     void pageExtras() {
-        section(en("STREMIO CENTRE"));
-        row(en("Stremio Centre"),
-                () -> Extras.isStremioCentre(this) ? en("On") : en("Off"),
-                () -> {
-                    boolean next = !Extras.isStremioCentre(this);
-                    Extras.setStremioCentre(this, next);
-                    refreshAll();
-                    if (next && !new StremioCloud(this).isSignedIn()) {
-                        showStatusMsg(en("Turned on. Sign in to Stremio first: on Home, highlight the Stremio icon in the dock and scan the QR code."));
-                    } else if (next && !Scenes.isScenesLook(this)) {
-                        showStatusMsg(en("Turned on. It shows with the Scenes look (Appearance and scenes)."));
-                    } else {
-                        showStatusMsg(next ? en("Turned on. Press Home to see it.") : en("Turned off. The normal home screen is back."));
-                    }
-                });
-        row(en("Poster rows side"),
-                () -> Extras.getCentreSide(this) == Extras.SIDE_LEFT ? en("Left") : en("Right"),
-                () -> {
-                    Extras.setCentreSide(this, Extras.getCentreSide(this) == Extras.SIDE_LEFT ? Extras.SIDE_RIGHT : Extras.SIDE_LEFT);
-                    refreshAll();
-                });
+        section(en("DOCK"));
+        row(en("Dock position"),
+                () -> Extras.dockPositionLabel(this, Extras.getDockPosition(this)),
+                () -> openSubMenu("extras_dock_pos"));
         row(en("Single-app dock"),
                 () -> Extras.isSingleAppDock(this) ? en("On") : en("Off"),
                 () -> {
@@ -941,12 +924,7 @@ public class SettingsActivity extends Activity {
         row(en("Dock app"),
                 () -> singleAppLabel(),
                 () -> openSubMenu("extras_single_app"));
-        infoNote(en("Stremio Centre hides the clock and widgets and shows your Stremio Continue Watching and library as posters. Single-app dock shows only the chosen app plus the Settings gear; other apps stay reachable from Recent Apps and Settings > Apps."));
-
-        section(en("DOCK"));
-        row(en("Dock position"),
-                () -> Extras.dockPositionLabel(this, Extras.getDockPosition(this)),
-                () -> openSubMenu("extras_dock_pos"));
+        infoNote(en("Single-app dock shows only the chosen app plus the Settings gear; other apps stay reachable from Recent Apps and Settings > Apps."));
         section(en("CONTINUE WATCHING"));
         row(en("Stremio / Nuvio card style"),
                 () -> Extras.isCwPosters(this) ? en("Posters") : en("Wide cards"),

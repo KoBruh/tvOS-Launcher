@@ -169,20 +169,6 @@ final class SceneHome {
         stremioCloud = new StremioCloud(host);
         watchPopups.add(new WatchPopup(this, nuvioCloud));
         watchPopups.add(new WatchPopup(this, stremioCloud));
-        centre = new StremioCentre(this);
-    }
-
-    /** EXTRAS ! Stremio Centre panel (hidden unless turned on). */
-    final StremioCentre centre;
-
-    /** Stremio Centre is on: the other home widgets are hidden. */
-    boolean centreOn() {
-        return centre != null && centre.isActive();
-    }
-
-    /** Dock popups are off while the Centre shows the rows (still allowed to sign in to Stremio). */
-    private boolean popupsSuppressed() {
-        return centre != null && centre.replacesWidgets();
     }
 
     /** The continue-watching popup for a dock tile's app, or null when it has none. */
@@ -198,7 +184,6 @@ final class SceneHome {
     }
 
     void onWatchPopupsResume() {
-        if (centre != null) centre.onResume();
         // Home pressed / launcher resumed: rows reappear in place, without the entrance slide.
         suppressCwAnimUntil = android.os.SystemClock.uptimeMillis() + 700L;
         for (WatchPopup p : watchPopups) p.onLauncherResume();
@@ -554,7 +539,7 @@ final class SceneHome {
     }
 
     void syncDashboardIfFocusChanged() {
-        if (!HomeDashboard.isEnabled(host) || moreExpanded || moveDockIdx >= 0 || sheetLayer != null || centreOn()) {
+        if (!HomeDashboard.isEnabled(host) || moreExpanded || moveDockIdx >= 0 || sheetLayer != null) {
             hideDashboard();
             return;
         }
@@ -570,7 +555,7 @@ final class SceneHome {
     }
 
     void refreshDashboard() {
-        if (!HomeDashboard.isEnabled(host) || centreOn()) {
+        if (!HomeDashboard.isEnabled(host)) {
             hideDashboardImmediate();
             return;
         }
@@ -582,7 +567,7 @@ final class SceneHome {
     }
 
     void showDashboard() {
-        if (dashboardBox == null || !HomeDashboard.isEnabled(host) || moreExpanded || moveDockIdx >= 0 || sheetLayer != null || centreOn()) {
+        if (dashboardBox == null || !HomeDashboard.isEnabled(host) || moreExpanded || moveDockIdx >= 0 || sheetLayer != null) {
             hideDashboard();
             return;
         }
@@ -1065,81 +1050,81 @@ final class SceneHome {
      * The Keep Watching glass card: thumbnail, app name, title, subtitle, progress bar.
      * WatchPopup uses it too, so both rows look the same. Callers set click handling.
      */
+    /** Height of the title + episode lines under a poster card. */
+    static final float POSTER_TEXT_H_DP = 30;
+
     /**
-     * Portrait poster card (EXTRAS ! Continue watching style: Posters): artwork fills the card,
-     * title / episode / progress sit on a dark scrim at the bottom.
+     * Portrait poster card (EXTRAS ! Continue watching style: Posters): the 2:3 artwork on top
+     * (title art left uncovered, a thin progress bar along its bottom edge), title and episode
+     * underneath. cardH includes the text lines.
      */
     View posterCard(WatchCardData d, int cardW, int cardH, View.OnFocusChangeListener onFocus) {
-        FrameLayout card = new FrameLayout(host) {
+        LinearLayout card = new LinearLayout(host) {
             @Override public boolean hasOverlappingRendering() { return false; }
         };
+        card.setOrientation(LinearLayout.VERTICAL);
         card.setFocusable(true);
         card.setClickable(true);
-        float r = dp(11);
+        card.setClipChildren(false);
+        card.setClipToPadding(false);
+        int textH = dp(POSTER_TEXT_H_DP);
+        int imgH = Math.max(dp(40), cardH - textH);
+        card.setPivotX(cardW / 2f);
+        card.setPivotY(imgH / 2f);
+
+        float r = dp(10);
+        FrameLayout art = new FrameLayout(host);
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(r);
         bg.setColor(0xFF1A1C22);
-        card.setBackground(bg);
-        card.setOutlineProvider(host.roundedOutline(new float[]{r}));
-        card.setClipToOutline(true);
-
+        art.setBackground(bg);
+        art.setOutlineProvider(host.roundedOutline(new float[]{r}));
+        art.setClipToOutline(true);
         ImageView poster = new ImageView(host);
         poster.setScaleType(ImageView.ScaleType.CENTER_CROP);
         poster.setTag(WATCH_THUMB);
         if (d.thumb != null) poster.setImageBitmap(d.thumb);
-        card.addView(poster, host.match());
-
-        View scrim = new View(host);
-        scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0x00000000, 0xA6000000, 0xF0000000}));
-        card.addView(scrim, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                Math.round(cardH * 0.52f), Gravity.BOTTOM));
-
-        LinearLayout body = new LinearLayout(host);
-        body.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp(7);
-        body.setPadding(pad, 0, pad, dp(7));
-        TextView titleTxt = new TextView(host);
-        Ui.textSize(titleTxt, 10f);
-        titleTxt.setTypeface(Ui.font(host, "semibold"));
-        titleTxt.setTextColor(0xFFF4F4F6);
-        titleTxt.setMaxLines(2);
-        titleTxt.setEllipsize(TextUtils.TruncateAt.END);
-        titleTxt.setText(d.title);
-        body.addView(titleTxt);
-        TextView subTxt = new TextView(host);
-        Ui.textSize(subTxt, 8.2f);
-        subTxt.setTypeface(Ui.font(host, "regular"));
-        subTxt.setTextColor(0xC7F4F4F6);
-        subTxt.setSingleLine(true);
-        subTxt.setEllipsize(TextUtils.TruncateAt.END);
-        subTxt.setText(d.subtitle);
-        body.addView(subTxt);
-        FrameLayout barTrack = new FrameLayout(host);
-        GradientDrawable trBg = new GradientDrawable();
-        trBg.setCornerRadius(dp(1.5f));
-        trBg.setColor(0x3DFFFFFF);
-        barTrack.setBackground(trBg);
-        View barFill = new View(host);
-        GradientDrawable flBg = new GradientDrawable();
-        flBg.setCornerRadius(dp(1.5f));
-        flBg.setColor(0xEBFFFFFF);
-        barFill.setBackground(flBg);
-        int maxBarW = cardW - 2 * pad;
-        int fillW = Math.max(dp(4), Math.round(maxBarW * Math.max(0.04f, Math.min(1f, d.progress))));
-        barTrack.addView(barFill, new FrameLayout.LayoutParams(fillW, ViewGroup.LayoutParams.MATCH_PARENT));
-        LinearLayout.LayoutParams prlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2.5f));
-        prlp.topMargin = dp(4);
-        body.addView(barTrack, prlp);
-        card.addView(body, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM));
-
+        art.addView(poster, host.match());
+        if (d.progress > 0.001f) {
+            FrameLayout barTrack = new FrameLayout(host);
+            barTrack.setBackgroundColor(0x66000000);
+            View barFill = new View(host);
+            barFill.setBackgroundColor(0xF2FFFFFF);
+            int fillW = Math.max(dp(4), Math.round(cardW * Math.min(1f, d.progress)));
+            barTrack.addView(barFill, new FrameLayout.LayoutParams(fillW, ViewGroup.LayoutParams.MATCH_PARENT));
+            art.addView(barTrack, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3), Gravity.BOTTOM));
+        }
         GradientDrawable focusRing = new GradientDrawable();
         focusRing.setCornerRadius(r);
         focusRing.setColor(Color.TRANSPARENT);
         focusRing.setStroke(dp(2), Color.WHITE);
+        card.addView(art, new LinearLayout.LayoutParams(cardW, imgH));
+
+        TextView titleTxt = new TextView(host);
+        Ui.textSize(titleTxt, 9.5f);
+        titleTxt.setTypeface(Ui.font(host, "semibold"));
+        titleTxt.setTextColor(0xFFF4F4F6);
+        titleTxt.setShadowLayer(dp(5), 0, dp(1), 0x99000000);
+        titleTxt.setSingleLine(true);
+        titleTxt.setEllipsize(TextUtils.TruncateAt.END);
+        titleTxt.setText(d.title);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(cardW, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlp.topMargin = dp(4);
+        card.addView(titleTxt, tlp);
+        if (d.subtitle != null && !d.subtitle.isEmpty()) {
+            TextView subTxt = new TextView(host);
+            Ui.textSize(subTxt, 8f);
+            subTxt.setTypeface(Ui.font(host, "regular"));
+            subTxt.setTextColor(0xC7F4F4F6);
+            subTxt.setShadowLayer(dp(5), 0, dp(1), 0x99000000);
+            subTxt.setSingleLine(true);
+            subTxt.setEllipsize(TextUtils.TruncateAt.END);
+            subTxt.setText(d.subtitle);
+            card.addView(subTxt, new LinearLayout.LayoutParams(cardW, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+
         card.setOnFocusChangeListener((v, has) -> {
-            v.setForeground(has ? focusRing : null);
+            art.setForeground(has ? focusRing : null);
             v.animate().scaleX(has ? 1.06f : 1f).scaleY(has ? 1.06f : 1f)
                     .setDuration(180).setInterpolator(MainActivity.LIFT).start();
             if (onFocus != null) onFocus.onFocusChange(v, has);
@@ -1354,9 +1339,7 @@ final class SceneHome {
             dim |= p.isShowing();
             coverClock |= p.coversClock();
         }
-        sceneView.fadeClockText(!coverClock && !centreOn());
-        // Signed in to Stremio from the Centre's QR prompt: fill the panel.
-        if (centreOn() && stremioCloud.isSignedIn() && centre != null) centre.onSignedInMaybe();
+        sceneView.fadeClockText(!coverClock);
         float a = dim ? 0f : 1f;
         if (shelfHeader != null) {
             shelfHeader.animate().cancel();
@@ -1754,20 +1737,6 @@ final class SceneHome {
         }
     }
 
-    /** Shows/hides the Stremio Centre panel and the widgets it replaces. */
-    private void syncCentre() {
-        if (centre == null) return;
-        centre.sync();
-        boolean on = centreOn();
-        if (topRightRow != null) topRightRow.setVisibility(on ? View.GONE : View.VISIBLE);
-        if (on) {
-            hideShelfImmediate();
-            hideDashboardImmediate();
-            if (popupsSuppressed()) for (WatchPopup p : watchPopups) p.forceHide();
-        }
-        sceneView.fadeClockText(!on);
-    }
-
     void rebuildDock() {
         if (dockBox == null) return;
         int savedFocusIdx = focusedDockIdx;
@@ -1912,7 +1881,6 @@ final class SceneHome {
             dockTiles.add(tile);
         }
         focusedDockIdx = Math.max(0, Math.min(savedFocusIdx, dockTiles.size() - 1));
-        syncCentre();
         dockBox.requestLayout();
         dockBox.invalidate();
         if (dockContainer != null) {
@@ -1986,9 +1954,9 @@ final class SceneHome {
         focusRing.setStroke(dp(2.2f), Color.WHITE);
 
         tile.setOnFocusChangeListener((v, has) -> {
-            WatchPopup popup = isGear || isMore || popupsSuppressed() ? null : watchPopupFor(a.pkg);
+            WatchPopup popup = isGear || isMore ? null : watchPopupFor(a.pkg);
             if (popup != null) popup.onTileFocus(v, a.pkg, has && moveDockIdx < 0);
-            if (!centreOn()) onDockTileFocusForShelf(v, a, isGear, isMore, popup, has);
+            onDockTileFocusForShelf(v, a, isGear, isMore, popup, has);
             v.setPivotX(v.getWidth() > 0 ? v.getWidth() / 2f : size / 2f);
             v.setPivotY(v.getHeight() > 0 ? v.getHeight() / 2f : size / 2f);
             v.setForeground(has ? focusRing : null);
@@ -2236,9 +2204,9 @@ final class SceneHome {
             String pkg = entry.pkg;
             boolean isGear = GEAR_KEY.equals(entry.key);
             boolean isMore = MORE_KEY.equals(entry.key);
-            WatchPopup popup = isGear || isMore || popupsSuppressed() ? null : watchPopupFor(pkg);
+            WatchPopup popup = isGear || isMore ? null : watchPopupFor(pkg);
             if (popup != null) popup.onTileFocus(tile, pkg, true);
-            if (!centreOn()) onDockTileFocusForShelf(tile, entry, isGear, isMore, popup, true);
+            onDockTileFocusForShelf(tile, entry, isGear, isMore, popup, true);
         }
     }
 
@@ -2931,11 +2899,6 @@ final class SceneHome {
             return true;
         }
 
-        // Stremio Centre panel
-        if (centre != null && centre.owns(f)) {
-            if (centre.onKey(k, down, f)) return true;
-        }
-
         // Top Bar navigation
         boolean whoVisible = whoBar != null && whoBar.getVisibility() == View.VISIBLE;
         boolean wxVisible = weatherBtn != null && weatherBtn.getVisibility() == View.VISIBLE;
@@ -3082,9 +3045,6 @@ final class SceneHome {
      * first, then the dashboard, the Keep Watching shelf, and finally the top-right buttons.
      */
     private void leaveDock(View f, int dIdx) {
-        if (centre != null && centre.isActive() && centre.focusEntry()) {
-            return;
-        }
         if (focusWatchPopupRow(f)) {
             // Moved into the continue-watching popup next to the tile.
         } else if (isDashboardShowing() && !dashboardCards.isEmpty()) {
