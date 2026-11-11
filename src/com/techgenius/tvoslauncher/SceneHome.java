@@ -48,13 +48,9 @@ final class SceneHome {
 
     static final String GEAR_KEY = "scene:gear";
     static final String MORE_KEY = "scene:more";
-    /** Weather and Control Center live in the dock (they used to float in the top-right corner). */
-    static final String WEATHER_KEY = "scene:weather";
-    static final String CONTROL_KEY = "scene:control";
-
-    /** Settings gear, Weather or Control Center tile (not an app). */
+    /** The Settings gear tile (not an app). */
     static boolean isUtilityKey(String key) {
-        return GEAR_KEY.equals(key) || WEATHER_KEY.equals(key) || CONTROL_KEY.equals(key);
+        return GEAR_KEY.equals(key);
     }
 
     final MainActivity host;
@@ -1823,9 +1819,8 @@ final class SceneHome {
             }
         }
 
-        // Utility tiles after the apps: Weather (when weather is on), Control Center, Settings.
-        boolean weatherTile = Weather.enabled(host) && isWeatherShortcutEnabled(host);
-        int utilCount = (weatherTile ? 1 : 0) + 2;
+        // Only the Settings gear follows the apps (Weather and Control Center are in its menu).
+        int utilCount = 1;
 
         // Determine if Other Apps (...) button is needed:
         // Hidden when otherPool is empty AND all homePool apps + utility tiles fit in a single row (cols).
@@ -1850,19 +1845,6 @@ final class SceneHome {
         }
 
         dockEntries.addAll(visibleApps);
-
-        if (weatherTile) {
-            MainActivity.AppEntry wx = new MainActivity.AppEntry();
-            wx.key = WEATHER_KEY;
-            wx.label = I18n.s(host, "Weather", "Hava durumu");
-            dockEntries.add(wx);
-        }
-        MainActivity.AppEntry cc = new MainActivity.AppEntry();
-        cc.key = CONTROL_KEY;
-        int sleepLeft = SleepReceiver.timerLeft(host);
-        cc.label = I18n.s(host, "Control Center", "Denetim Merkezi")
-                + (sleepLeft > 0 ? "  ·  " + I18n.s(host, "Sleep in ", "Uyku: ") + sleepLeft + I18n.s(host, " min", " dk") : "");
-        dockEntries.add(cc);
 
         // Add Gear tile
         MainActivity.AppEntry gearEntry = new MainActivity.AppEntry();
@@ -1933,9 +1915,7 @@ final class SceneHome {
 
         boolean isGear = GEAR_KEY.equals(a.key);
         boolean isMore = MORE_KEY.equals(a.key);
-        boolean isWeather = WEATHER_KEY.equals(a.key);
-        boolean isControl = CONTROL_KEY.equals(a.key);
-        boolean isUtil = isGear || isWeather || isControl;
+        boolean isUtil = isGear;
 
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(rad);
@@ -1957,7 +1937,7 @@ final class SceneHome {
         ImageView iv = new ImageView(host);
         if (isUtil) {
             iv.setScaleType(ImageView.ScaleType.CENTER);
-            iv.setImageBitmap(Glyphs.get(isGear ? "gear" : isWeather ? "cloud" : "controls", glyphSize, 0xEBF4F4F6));
+            iv.setImageBitmap(Glyphs.get("gear", glyphSize, 0xEBF4F4F6));
             tile.addView(iv, host.match());
         } else if (isMore) {
             iv.setScaleType(ImageView.ScaleType.CENTER);
@@ -2028,10 +2008,6 @@ final class SceneHome {
             }
             if (isGear) {
                 showGearSheet(v);
-            } else if (isWeather) {
-                host.showWeather();
-            } else if (isControl) {
-                host.showControlCenter();
             } else if (isMore) {
                 toggleMoreApps();
             } else {
@@ -2527,6 +2503,36 @@ final class SceneHome {
         card.setBackground(glass);
 
         List<View> rows = new ArrayList<>();
+        // Control Center and Weather used to float in the top-right corner; they live here now.
+        int sleepLeft = SleepReceiver.timerLeft(host);
+        View btnControl = makeGearOptionRow(
+                "controls",
+                I18n.s(host, "Control Center", "Denetim Merkezi"),
+                sleepLeft > 0
+                        ? I18n.s(host, "Sleep timer: ", "Uyku zamanlayıcısı: ") + sleepLeft + I18n.s(host, " min left", " dk kaldı")
+                        : I18n.s(host, "Sleep timer, inputs, picture and quick toggles", "Uyku zamanlayıcısı, girişler, görüntü ve hızlı ayarlar"),
+                () -> {
+                    closeSheetImmediate();
+                    host.showControlCenter();
+                });
+        card.addView(btnControl);
+        rows.add(btnControl);
+        if (Weather.enabled(host)) {
+            View btnWeather = makeGearOptionRow(
+                    "cloud",
+                    I18n.s(host, "Weather", "Hava durumu"),
+                    I18n.s(host, "Today and the 5-day forecast", "Bugün ve 5 günlük tahmin"),
+                    () -> {
+                        closeSheetImmediate();
+                        host.showWeather();
+                    });
+            LinearLayout.LayoutParams wxlp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            wxlp.topMargin = dp(2);
+            card.addView(btnWeather, wxlp);
+            rows.add(btnWeather);
+        }
+
         View btnHomeSettings = makeGearOptionRow(
                 "sliders",
                 I18n.s(host, "Home settings", "Ana ekran ayarları"),
@@ -2537,7 +2543,10 @@ final class SceneHome {
                     host.returningFromSettings = true;
                     host.startActivity(new Intent(host, SettingsActivity.class));
                 });
-        card.addView(btnHomeSettings);
+        LinearLayout.LayoutParams hslp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hslp.topMargin = dp(2);
+        card.addView(btnHomeSettings, hslp);
         rows.add(btnHomeSettings);
 
         View btnTvSettings = makeGearOptionRow(
