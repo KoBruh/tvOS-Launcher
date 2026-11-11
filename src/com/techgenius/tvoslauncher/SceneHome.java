@@ -1720,7 +1720,7 @@ final class SceneHome {
         shelfTopPx = dp(SHELF_TOP_DP) + insetT;
         sceneView.setDockInsets(insetL, insetT, insetR);
         // Side dock: keep the shelf's cards inside the shelf so they never slide under the dock.
-        if (shelfScroll != null) shelfScroll.setClipChildren(vertical);
+        if (shelfBox != null) shelfBox.setClipChildren(vertical);
         boolean widthChanged = HomeDashboard.sceneWidthInsetPx != insetL + insetR;
         HomeDashboard.sceneWidthInsetPx = insetL + insetR;
         if (widthChanged && isDashboardShowing()) populateDashboard(true);

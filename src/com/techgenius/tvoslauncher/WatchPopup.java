@@ -115,7 +115,10 @@ final class WatchPopup {
             @Override public boolean hasOverlappingRendering() { return false; }
         };
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setClipChildren(false);
+        // Clip each row to its own width so cards never draw past it (e.g. under a side dock).
+        // A scroller only gets clipped when its parent clips children; the rows keep inner
+        // padding for the focus lift, so nothing visible is cut.
+        panel.setClipChildren(true);
         panel.setClipToPadding(false);
         panel.setVisibility(View.GONE);
         overlay.addView(panel, new FrameLayout.LayoutParams(
@@ -769,11 +772,15 @@ final class WatchPopup {
             View card = posters ? home.posterCard(cardData(it, pkg, appName), cardW, cardH, fl)
                     : home.watchCard(cardData(it, pkg, appName), cardW, cardH, fl);
             card.setId(View.generateViewId());
-            card.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);  // text inside stays left-aligned
             card.setOnClickListener(v -> open(it));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(cardW, cardH);
-            if (i > 0) lp.leftMargin = gap;
-            row.addView(card, lp);
+            if (i > 0) {
+                if (rightAnchored) lp.rightMargin = gap;
+                else lp.leftMargin = gap;
+            }
+            // Right-anchored: newest card on the right (next to the tile), older ones to its left.
+            if (rightAnchored) row.addView(card, 0, lp);
+            else row.addView(card, lp);
             into.add(card);
 
             ImageView thumb = card.findViewWithTag(SceneHome.WATCH_THUMB);
@@ -787,11 +794,10 @@ final class WatchPopup {
         scroll.setHorizontalScrollBarEnabled(false);
         scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
         scroll.setFocusable(false);
-        scroll.setClipChildren(true);
-        // Right-anchored: first (newest) card on the right, next to the tile; the row runs leftward.
-        scroll.setLayoutDirection(rightAnchored ? View.LAYOUT_DIRECTION_RTL : View.LAYOUT_DIRECTION_LTR);
         scroll.addView(row, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        // Start scrolled to the right end, where the newest card is.
+        if (rightAnchored) scroll.post(() -> scroll.scrollTo(Math.max(0, row.getWidth() - scroll.getWidth()), 0));
         int n = list.size();
         int contentW = n * cardW + (n - 1) * gap + 2 * pad;
         int maxW = host.screenW - home.shelfLeftPx - home.shelfRightPx + 2 * pad;

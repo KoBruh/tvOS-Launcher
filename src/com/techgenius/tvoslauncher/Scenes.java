@@ -924,21 +924,18 @@ public final class Scenes {
         /** Room kept free for the home dock (EXTRAS ! dock position), in px. */
         private int dockInsetL, dockInsetT, dockInsetR;
 
-        /** Clock + greeting + date opacity; faded out while big posters use that space. */
+        /**
+         * Clock + greeting + date shown (1) or hidden (0) while big posters use that space.
+         * Switched instantly: the scene is drawn into a cached bitmap, so animating this would
+         * redraw the whole scene every frame on a weak TV.
+         */
         private float textFade = 1f;
-        private ValueAnimator textFadeAnim;
 
         public void fadeClockText(boolean visible) {
             float target = visible ? 1f : 0f;
-            if (textFadeAnim != null) textFadeAnim.cancel();
-            if (Math.abs(textFade - target) < 0.01f) return;
-            textFadeAnim = ValueAnimator.ofFloat(textFade, target);
-            textFadeAnim.setDuration(visible ? 220 : 160);
-            textFadeAnim.addUpdateListener(a -> {
-                textFade = (float) a.getAnimatedValue();
-                invalidate();
-            });
-            textFadeAnim.start();
+            if (textFade == target) return;
+            textFade = target;
+            invalidate();
         }
 
         public void setDockInsets(int left, int top, int right) {
@@ -1599,7 +1596,8 @@ public final class Scenes {
                             + CustomMedia.getRedditWallpaperTimestamp(ctx, CustomMedia.SCOPE_SCENE) + "|"
                             + (classicWallBmp != null && !classicWallBmp.isRecycled() ? classicWallBmp.getGenerationId() : 0) + "|"
                             + CustomMedia.getCustomLockTimestamp(ctx) + "|"
-                            + buildGreeting(ctx) + "|" + w + "x" + h;
+                            + buildGreeting(ctx) + "|" + w + "x" + h + "|"
+                            + (textFade > 0.5f) + "|" + dockInsetL + "," + dockInsetT + "," + dockInsetR;
                     if (!frameKey.equals(cachedFrameKey) || cachedFrameBmp == null
                             || cachedFrameBmp.getWidth() != w || cachedFrameBmp.getHeight() != h) {
                         if (cachedFrameBmp == null || cachedFrameBmp.getWidth() != w || cachedFrameBmp.getHeight() != h) {
