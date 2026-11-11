@@ -479,6 +479,8 @@ final class WatchPopup {
         panel.removeAllViews();
         cards.clear();
         exCards.clear();
+        rightAnchored = anchorRight();
+        panel.setGravity(rightAnchored ? Gravity.END : Gravity.START);
         thumbViews.clear();
         // The profile bar is kept across redraws (see profileBarView) so its slide isn't cut short.
         statusBox = null;
@@ -541,7 +543,7 @@ final class WatchPopup {
         int back = anchor != null ? anchor.getId() : View.NO_ID;
         for (int i = 0; i < cards.size(); i++) {
             View c = cards.get(i);
-            wireEdges(c, i, cards.size(), pos, back);
+            wireEdges(c, i, cards.size(), pos, back, rightAnchored);
             if (!exCards.isEmpty()) c.setNextFocusDownId(exCards.get(Math.min(i, exCards.size() - 1)).getId());
             else if (anchor != null) c.setNextFocusDownId(anchor.getId());
             c.setNextFocusUpId(selected != null ? selected.getId()
@@ -549,7 +551,7 @@ final class WatchPopup {
         }
         for (int i = 0; i < exCards.size(); i++) {
             View c = exCards.get(i);
-            wireEdges(c, i, exCards.size(), pos, back);
+            wireEdges(c, i, exCards.size(), pos, back, rightAnchored);
             if (anchor != null) c.setNextFocusDownId(pos == Extras.DOCK_TOP ? c.getId() : anchor.getId());
             if (!cards.isEmpty()) c.setNextFocusUpId(cards.get(Math.min(i, cards.size() - 1)).getId());
             else c.setNextFocusUpId(selected != null ? selected.getId()
@@ -569,9 +571,11 @@ final class WatchPopup {
         }
     }
 
-    private static void wireEdges(View c, int i, int n, int pos, int back) {
-        if (i == 0) c.setNextFocusLeftId(pos == Extras.DOCK_LEFT && back != View.NO_ID ? back : c.getId());
-        if (i == n - 1) c.setNextFocusRightId(pos == Extras.DOCK_RIGHT && back != View.NO_ID ? back : c.getId());
+    private static void wireEdges(View c, int i, int n, int pos, int back, boolean rtl) {
+        boolean leftEnd = rtl ? i == n - 1 : i == 0;
+        boolean rightEnd = rtl ? i == 0 : i == n - 1;
+        if (leftEnd) c.setNextFocusLeftId(pos == Extras.DOCK_LEFT && back != View.NO_ID ? back : c.getId());
+        if (rightEnd) c.setNextFocusRightId(pos == Extras.DOCK_RIGHT && back != View.NO_ID ? back : c.getId());
     }
 
     /** First card when entering from the dock: the row nearest a bottom dock, else the top row. */
@@ -656,10 +660,26 @@ final class WatchPopup {
     /** Poster cards (EXTRAS ! Continue watching style) for this render. */
     private boolean posters;
 
-    /** Top/Bottom dock: big posters take the clock's space (it fades out meanwhile). */
+    /** Posters take the clock's space (clock, greeting and date fade out meanwhile). */
     private boolean bigPosters() {
-        return posters && !Extras.isDockVertical(home.dockPos);
+        return posters;
     }
+
+    /**
+     * Rows hug the side the app's tile is on: a right dock, or a tile on the right half of a
+     * top/bottom dock, anchors them to the right with the newest title nearest the tile.
+     */
+    private boolean anchorRight() {
+        if (home.dockPos == Extras.DOCK_RIGHT) return true;
+        if (home.dockPos == Extras.DOCK_LEFT) return false;
+        if (anchor == null || anchor.getWidth() <= 0) return false;
+        int[] loc = new int[2];
+        anchor.getLocationOnScreen(loc);
+        return loc[0] + anchor.getWidth() / 2 > host.screenW / 2;
+    }
+
+    /** Set per render from {@link #anchorRight()}. */
+    private boolean rightAnchored;
 
     /** Whether the open row is big posters that use the clock's space. */
     boolean coversClock() {
@@ -681,10 +701,7 @@ final class WatchPopup {
             int thick = home.dockThicknessPx > 0 ? home.dockThicknessPx : dp(74);
             return dp(14) + thick + dp(40);  // under the top dock and its name label
         }
-        if (home.dockPos == Extras.DOCK_BOTTOM || home.dockPos < 0) {
-            return dp(90);  // under the top-right buttons
-        }
-        return home.shelfTopPx - dp(70);  // side dock: just under the clock, which stays
+        return dp(30);  // the clock fades out and the top-right buttons now live in the dock
     }
 
     private void renderItems(String header) {
@@ -726,7 +743,8 @@ final class WatchPopup {
                 h.setShadowLayer(dp(6), 0, dp(1), 0x80000000);
                 LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                hlp.leftMargin = pad + dp(2);
+                if (rightAnchored) hlp.rightMargin = pad + dp(2);
+                else hlp.leftMargin = pad + dp(2);
                 hlp.topMargin = dp(6);
                 panel.addView(h, hlp);
             }
@@ -751,6 +769,7 @@ final class WatchPopup {
             View card = posters ? home.posterCard(cardData(it, pkg, appName), cardW, cardH, fl)
                     : home.watchCard(cardData(it, pkg, appName), cardW, cardH, fl);
             card.setId(View.generateViewId());
+            card.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);  // text inside stays left-aligned
             card.setOnClickListener(v -> open(it));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(cardW, cardH);
             if (i > 0) lp.leftMargin = gap;
@@ -768,6 +787,9 @@ final class WatchPopup {
         scroll.setHorizontalScrollBarEnabled(false);
         scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
         scroll.setFocusable(false);
+        scroll.setClipChildren(true);
+        // Right-anchored: first (newest) card on the right, next to the tile; the row runs leftward.
+        scroll.setLayoutDirection(rightAnchored ? View.LAYOUT_DIRECTION_RTL : View.LAYOUT_DIRECTION_LTR);
         scroll.addView(row, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         int n = list.size();
@@ -871,14 +893,18 @@ final class WatchPopup {
         int contentBottom = panel.getMeasuredHeight() - rowInset;  // the card row has rowInset below it
         // Placed with layout margins (not translation) so translationY stays free for the
         // show/hide slide animation and can never push the popup to the top of the screen.
-        int left = home.shelfLeftPx - rowInset;
         int top = shelfCardsBottom - contentBottom;
         ViewGroup.LayoutParams raw = panel.getLayoutParams();
         if (raw instanceof FrameLayout.LayoutParams) {
             FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) raw;
-            if (lp.leftMargin != left || lp.topMargin != top) {
+            int gravity = Gravity.TOP | (rightAnchored ? Gravity.END : Gravity.START);
+            int left = rightAnchored ? 0 : home.shelfLeftPx - rowInset;
+            int right = rightAnchored ? home.shelfRightPx - rowInset : 0;
+            if (lp.leftMargin != left || lp.rightMargin != right || lp.topMargin != top || lp.gravity != gravity) {
                 lp.leftMargin = left;
+                lp.rightMargin = right;
                 lp.topMargin = top;
+                lp.gravity = gravity;
                 panel.setLayoutParams(lp);
             }
         }
@@ -917,7 +943,8 @@ final class WatchPopup {
 
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.leftMargin = indent + dp(2);
+        if (rightAnchored) lp.rightMargin = indent + dp(2);
+        else lp.leftMargin = indent + dp(2);
         lp.bottomMargin = indent > 0 ? 0 : dp(SceneHome.SHELF_HEADER_GAP_DP);
         panel.addView(row, lp);
 

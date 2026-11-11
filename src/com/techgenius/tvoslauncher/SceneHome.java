@@ -48,6 +48,14 @@ final class SceneHome {
 
     static final String GEAR_KEY = "scene:gear";
     static final String MORE_KEY = "scene:more";
+    /** Weather and Control Center live in the dock (they used to float in the top-right corner). */
+    static final String WEATHER_KEY = "scene:weather";
+    static final String CONTROL_KEY = "scene:control";
+
+    /** Settings gear, Weather or Control Center tile (not an app). */
+    static boolean isUtilityKey(String key) {
+        return GEAR_KEY.equals(key) || WEATHER_KEY.equals(key) || CONTROL_KEY.equals(key);
+    }
 
     final MainActivity host;
     final Scenes.SceneView sceneView;
@@ -399,6 +407,11 @@ final class SceneHome {
         overlay.addView(topRightRow, trlp);
     }
 
+    /** Top-right corner: only the profile pill is left there (when there are 2+ people). */
+    private void focusTopBar() {
+        if (whoBar != null && whoBar.getVisibility() == View.VISIBLE) whoBar.requestFocus();
+    }
+
     void refreshWhoBar() {
         if (whoBar == null) return;
         whoBar.removeAllViews();
@@ -433,8 +446,9 @@ final class SceneHome {
 
     void refreshWeatherBtn() {
         if (weatherBtn == null) return;
-        boolean show = isWeatherShortcutEnabled(host) && Weather.enabled(host);
-        weatherBtn.setVisibility(show ? View.VISIBLE : View.GONE);
+        // Weather is a dock tile now; the top-right button stays hidden.
+        weatherBtn.setVisibility(View.GONE);
+        if (moonBtn != null) moonBtn.setVisibility(View.GONE);
     }
 
     void refreshMoonBtn() {
@@ -450,6 +464,8 @@ final class SceneHome {
             moonBtn.setPadding(dp(11.5f), 0, dp(11.5f), 0);
         }
         moonBtn.setMinimumWidth(mSize);
+        // Control Center is a dock tile now; the top-right button stays hidden.
+        moonBtn.setVisibility(View.GONE);
     }
 
     // ---------------------------------------------------------------- Keep Watching Glass Shelf
@@ -534,7 +550,7 @@ final class SceneHome {
         int idx = dockTiles.indexOf(f);
         if (idx < 0 || idx >= dockEntries.size()) return false;
         MainActivity.AppEntry a = dockEntries.get(idx);
-        return a != null && !GEAR_KEY.equals(a.key) && !MORE_KEY.equals(a.key)
+        return a != null && !isUtilityKey(a.key) && !MORE_KEY.equals(a.key)
                 && a.pkg != null && !a.pkg.isEmpty();
     }
 
@@ -676,7 +692,7 @@ final class SceneHome {
         final List<String> dockPkgs = new ArrayList<>();
         for (MainActivity.AppEntry e : dockEntries) {
             if (e != null && e.pkg != null && !e.pkg.isEmpty()
-                    && !GEAR_KEY.equals(e.key) && !MORE_KEY.equals(e.key)) {
+                    && !isUtilityKey(e.key) && !MORE_KEY.equals(e.key)) {
                 WatchPopup p = watchPopupFor(e.pkg);
                 if (p == null) {
                     dockPkgs.add(e.pkg);
@@ -1807,9 +1823,13 @@ final class SceneHome {
             }
         }
 
+        // Utility tiles after the apps: Weather (when weather is on), Control Center, Settings.
+        boolean weatherTile = Weather.enabled(host) && isWeatherShortcutEnabled(host);
+        int utilCount = (weatherTile ? 1 : 0) + 2;
+
         // Determine if Other Apps (...) button is needed:
-        // Hidden when otherPool is empty AND all homePool apps + Gear fit in a single row (cols).
-        boolean hasAnyOtherOrOverflow = !otherPool.isEmpty() || (homePool.size() + 1 > cols);
+        // Hidden when otherPool is empty AND all homePool apps + utility tiles fit in a single row (cols).
+        boolean hasAnyOtherOrOverflow = !otherPool.isEmpty() || (homePool.size() + utilCount > cols);
         if (!hasAnyOtherOrOverflow && moreExpanded) {
             moreExpanded = false;
             if (shelfBox != null) {
@@ -1817,7 +1837,7 @@ final class SceneHome {
             }
         }
 
-        int maxFirstRowApps = hasAnyOtherOrOverflow ? Math.max(1, cols - 2) : Math.max(1, cols - 1);
+        int maxFirstRowApps = Math.max(1, cols - utilCount - (hasAnyOtherOrOverflow ? 1 : 0));
         currentMaxSingleRowApps = maxFirstRowApps;
 
         List<MainActivity.AppEntry> visibleApps;
@@ -1830,6 +1850,19 @@ final class SceneHome {
         }
 
         dockEntries.addAll(visibleApps);
+
+        if (weatherTile) {
+            MainActivity.AppEntry wx = new MainActivity.AppEntry();
+            wx.key = WEATHER_KEY;
+            wx.label = I18n.s(host, "Weather", "Hava durumu");
+            dockEntries.add(wx);
+        }
+        MainActivity.AppEntry cc = new MainActivity.AppEntry();
+        cc.key = CONTROL_KEY;
+        int sleepLeft = SleepReceiver.timerLeft(host);
+        cc.label = I18n.s(host, "Control Center", "Denetim Merkezi")
+                + (sleepLeft > 0 ? "  ·  " + I18n.s(host, "Sleep in ", "Uyku: ") + sleepLeft + I18n.s(host, " min", " dk") : "");
+        dockEntries.add(cc);
 
         // Add Gear tile
         MainActivity.AppEntry gearEntry = new MainActivity.AppEntry();
@@ -1900,10 +1933,13 @@ final class SceneHome {
 
         boolean isGear = GEAR_KEY.equals(a.key);
         boolean isMore = MORE_KEY.equals(a.key);
+        boolean isWeather = WEATHER_KEY.equals(a.key);
+        boolean isControl = CONTROL_KEY.equals(a.key);
+        boolean isUtil = isGear || isWeather || isControl;
 
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(rad);
-        if (isGear || isMore) {
+        if (isUtil || isMore) {
             bg.setColor(0x1EFFFFFF);
             bg.setStroke(Math.max(1, dp(0.8f)), 0x24FFFFFF);
         } else {
@@ -1919,9 +1955,9 @@ final class SceneHome {
 
         int glyphSize = Math.max(dp(14), Math.round(dp(26) * scale));
         ImageView iv = new ImageView(host);
-        if (isGear) {
+        if (isUtil) {
             iv.setScaleType(ImageView.ScaleType.CENTER);
-            iv.setImageBitmap(Glyphs.get("gear", glyphSize, 0xEBF4F4F6));
+            iv.setImageBitmap(Glyphs.get(isGear ? "gear" : isWeather ? "cloud" : "controls", glyphSize, 0xEBF4F4F6));
             tile.addView(iv, host.match());
         } else if (isMore) {
             iv.setScaleType(ImageView.ScaleType.CENTER);
@@ -1954,9 +1990,9 @@ final class SceneHome {
         focusRing.setStroke(dp(2.2f), Color.WHITE);
 
         tile.setOnFocusChangeListener((v, has) -> {
-            WatchPopup popup = isGear || isMore ? null : watchPopupFor(a.pkg);
+            WatchPopup popup = isUtil || isMore ? null : watchPopupFor(a.pkg);
             if (popup != null) popup.onTileFocus(v, a.pkg, has && moveDockIdx < 0);
-            onDockTileFocusForShelf(v, a, isGear, isMore, popup, has);
+            onDockTileFocusForShelf(v, a, isUtil, isMore, popup, has);
             v.setPivotX(v.getWidth() > 0 ? v.getWidth() / 2f : size / 2f);
             v.setPivotY(v.getHeight() > 0 ? v.getHeight() / 2f : size / 2f);
             v.setForeground(has ? focusRing : null);
@@ -1992,6 +2028,10 @@ final class SceneHome {
             }
             if (isGear) {
                 showGearSheet(v);
+            } else if (isWeather) {
+                host.showWeather();
+            } else if (isControl) {
+                host.showControlCenter();
             } else if (isMore) {
                 toggleMoreApps();
             } else {
@@ -2000,7 +2040,7 @@ final class SceneHome {
         });
 
         tile.setOnLongClickListener(v -> {
-            if (!isGear && !isMore && moveDockIdx < 0) {
+            if (!isUtil && !isMore && moveDockIdx < 0) {
                 showDockAppMenu(index, a, v);
                 return true;
             }
@@ -2202,7 +2242,7 @@ final class SceneHome {
         if (alreadyFocused && moveDockIdx < 0 && clamped < dockEntries.size()) {
             MainActivity.AppEntry entry = dockEntries.get(clamped);
             String pkg = entry.pkg;
-            boolean isGear = GEAR_KEY.equals(entry.key);
+            boolean isGear = isUtilityKey(entry.key);
             boolean isMore = MORE_KEY.equals(entry.key);
             WatchPopup popup = isGear || isMore ? null : watchPopupFor(pkg);
             if (popup != null) popup.onTileFocus(tile, pkg, true);
@@ -2876,7 +2916,7 @@ final class SceneHome {
             int dIdx = dockTiles.indexOf(f);
             if (dIdx >= 0 && dIdx < dockEntries.size()) {
                 MainActivity.AppEntry a = dockEntries.get(dIdx);
-                if (!GEAR_KEY.equals(a.key) && !MORE_KEY.equals(a.key)) {
+                if (!isUtilityKey(a.key) && !MORE_KEY.equals(a.key)) {
                     showDockAppMenu(dIdx, a, f);
                     return true;
                 }
@@ -2907,9 +2947,9 @@ final class SceneHome {
                 if (down) {
                     if (f == whoBar) {
                         if (wxVisible) weatherBtn.requestFocus();
-                        else moonBtn.requestFocus();
+                        else focusTopBar();
                     } else if (f == weatherBtn) {
-                        moonBtn.requestFocus();
+                        focusTopBar();
                     } else if (dockPos == Extras.DOCK_RIGHT) {
                         focusDock(focusedDockIdx);
                     }
@@ -2963,7 +3003,7 @@ final class SceneHome {
                 return true;
             }
             if (k == KeyEvent.KEYCODE_DPAD_UP) {
-                if (down) moonBtn.requestFocus();
+                if (down) focusTopBar();
                 return true;
             }
             if (k == KeyEvent.KEYCODE_DPAD_DOWN) {
@@ -2990,7 +3030,7 @@ final class SceneHome {
                 return true;
             }
             if (k == KeyEvent.KEYCODE_DPAD_UP) {
-                if (down) moonBtn.requestFocus();
+                if (down) focusTopBar();
                 return true;
             }
             if (k == KeyEvent.KEYCODE_DPAD_DOWN) {
@@ -3052,7 +3092,7 @@ final class SceneHome {
         } else if (shelfBox.getVisibility() == View.VISIBLE && !shelfCards.isEmpty()) {
             shelfCards.get(dockPos == Extras.DOCK_RIGHT ? shelfCards.size() - 1 : 0).requestFocus();
         } else if (moonBtn != null) {
-            moonBtn.requestFocus();
+            focusTopBar();
         }
     }
 
