@@ -85,6 +85,36 @@ public class BootReceiver extends BroadcastReceiver {
         }
     }
 
+    private static final String KEY_UPDATED_AT = "launcher_updated_at";
+
+    /** The launcher was updated within the last two minutes. */
+    public static boolean wasJustUpdated(Context c) {
+        if (c == null) return false;
+        try {
+            long at = c.getSharedPreferences(PREF_BOOT, Context.MODE_PRIVATE).getLong(KEY_UPDATED_AT, 0L);
+            long ago = System.currentTimeMillis() - at;
+            return at > 0 && ago >= 0 && ago < 120_000L;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** After an update the launcher restarts in the background: bring it back to the front. */
+    private static void relaunchAfterUpdate(Context context) {
+        final Context appCtx = context.getApplicationContext();
+        try {
+            appCtx.getSharedPreferences(PREF_BOOT, Context.MODE_PRIVATE).edit()
+                    .putLong(KEY_UPDATED_AT, System.currentTimeMillis()).apply();
+        } catch (Throwable ignored) {
+        }
+        launchHomeImmediately(appCtx);
+        Handler h = new Handler(Looper.getMainLooper());
+        long[] delays = {800L, 2000L, 4000L};
+        for (long d : delays) {
+            h.postDelayed(() -> launchHomeImmediately(appCtx), d);
+        }
+    }
+
     public static void triggerFastBootSequenceIfNeeded(Context context) {
         if (context == null || !isLaunchOnBootEnabled(context)) return;
         if (SystemClock.elapsedRealtime() > 180_000L && bootLaunchTriggeredThisSession) return;
@@ -112,6 +142,9 @@ public class BootReceiver extends BroadcastReceiver {
 
         if (!isBootEvent && !Intent.ACTION_MY_PACKAGE_REPLACED.equals(a)) {
             return;
+        }
+        if (Intent.ACTION_MY_PACKAGE_REPLACED.equals(a)) {
+            relaunchAfterUpdate(context);
         }
         try {
             Presenter.ensureRunning(context);

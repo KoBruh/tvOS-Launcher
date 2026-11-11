@@ -306,6 +306,19 @@ public class PowerService extends AccessibilityService {
     protected void onServiceConnected() {
         instance = this;
         serviceConnectedElapsedMs = SystemClock.elapsedRealtime();
+        // Just updated (or booting with Launch on System Boot) and the TV's input screen is already in
+        // front from before this service came up: bring the launcher back.
+        handler.postDelayed(() -> {
+            try {
+                boolean bootWindow = SystemClock.elapsedRealtime() < 160_000L
+                        && BootReceiver.isLaunchOnBootEnabled(this);
+                if (!bootWindow && !BootReceiver.wasJustUpdated(this)) return;
+                AccessibilityNodeInfo r = getRootInActiveWindow();
+                String fg = r != null && r.getPackageName() != null ? r.getPackageName().toString() : null;
+                if (isStockStartupScreen(fg)) BootReceiver.launchHomeImmediately(this);
+            } catch (Throwable ignored) {
+            }
+        }, 1500);
         Extras.syncNetflixWatcher(this);
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         try {
@@ -982,6 +995,20 @@ public class PowerService extends AccessibilityService {
         return super.onKeyEvent(event);
     }
 
+    /**
+     * The TV's own startup screens: stock launchers, plus the TV/input apps and Netflix that TCL
+     * and similar firmwares open at power-on (the "HDMI 1 · No Signal" screen and its side panel).
+     * Only used in the short windows after boot or a launcher update.
+     */
+    private boolean isStockStartupScreen(String pkg) {
+        if (pkg == null || pkg.equals(getPackageName())) return false;
+        for (String stock : Perms.getStockTvHomePackages()) if (stock.equals(pkg)) return true;
+        String p = pkg.toLowerCase(java.util.Locale.ROOT);
+        if (p.contains("settings") || p.contains("installer")) return false;
+        return p.startsWith("com.tcl.") || p.startsWith("com.mediatek.wwtv.") || p.startsWith("com.mstar.tv")
+                || p.equals("com.android.tv") || p.startsWith("com.netflix.");
+    }
+
     static boolean sleep() {
         PowerService s = instance;
         return s != null && Build.VERSION.SDK_INT >= 28 && s.performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN);
@@ -1064,15 +1091,15 @@ public class PowerService extends AccessibilityService {
 
             // Fast boot guard: during the first 40s after system boot, if "Launch on System Boot" is enabled
             // and a stock OEM/Chinese TV launcher pops to the foreground, immediately bring tvOS Launcher to front!
-            if (SystemClock.elapsedRealtime() < 160_000L
+            // Also right after a launcher update (the TV's own input/TV app tends to take over while
+            // the launcher restarts), whether or not "Launch on System Boot" is on.
+            boolean bootWindow = SystemClock.elapsedRealtime() < 160_000L
+                    && BootReceiver.isLaunchOnBootEnabled(this);
+            boolean updateWindow = BootReceiver.wasJustUpdated(this);
+            if ((bootWindow || updateWindow)
                     && (SystemClock.elapsedRealtime() - serviceConnectedElapsedMs) < 40_000L
-                    && BootReceiver.isLaunchOnBootEnabled(this)) {
-                for (String stockLauncher : Perms.getStockTvHomePackages()) {
-                    if (stockLauncher.equals(fgPkg)) {
-                        BootReceiver.launchHomeImmediately(this);
-                        break;
-                    }
-                }
+                    && isStockStartupScreen(fgPkg)) {
+                BootReceiver.launchHomeImmediately(this);
             }
         }
         if (current == null) return;
