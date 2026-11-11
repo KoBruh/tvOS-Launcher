@@ -618,6 +618,24 @@ public final class AppUpdater {
                     if (LocalAdb.installApkViaAdb(appCtx, apkFile)) {
                         downloading = false;
                         if (onUiRefresh != null) MAIN.post(onUiRefresh);
+                        // A successful install restarts this app. Still running the same
+                        // version a while later means it didn't happen: say why and fall back
+                        // to the system installer.
+                        final String before = getCurrentVersion(appCtx);
+                        MAIN.postDelayed(() -> {
+                            if (!before.equals(getCurrentVersion(appCtx))) return;
+                            new Thread(() -> {
+                                String log = LocalAdb.readUpdateLog(appCtx);
+                                MAIN.post(() -> {
+                                    Toast.makeText(appCtx, I18n.s(appCtx, "ADB install didn't finish", null)
+                                            + (log.isEmpty() ? "" : ": " + log)
+                                            + ". " + I18n.s(appCtx, "Opening the installer…", null),
+                                            Toast.LENGTH_LONG).show();
+                                    Activity a = (activity != null && !activity.isFinishing()) ? activity : MainActivity.activeInstance;
+                                    if (a != null) installWithPackageInstaller(a, apkFile);
+                                });
+                            }, "update-verify").start();
+                        }, 60_000L);
                         return;
                     }
                     MAIN.post(() -> Toast.makeText(appCtx,

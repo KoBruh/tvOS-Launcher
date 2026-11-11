@@ -1238,6 +1238,23 @@ final class LocalAdb {
      * launches a detached background {@code pm install -r} + {@code MainActivity} restart script
      * so updating self never crashes or leaves the launcher closed.
      */
+    static final String UPDATE_SCRIPT = "/data/local/tmp/tvos-update.sh";
+    static final String UPDATE_LOG = "/data/local/tmp/tvos-update.log";
+
+    /** Last lines of the ADB update script's output (pm install result), or "" if unavailable. */
+    static String readUpdateLog(Context c) {
+        String[] hosts = {"127.0.0.1", localLanIp()};
+        for (String h : hosts) {
+            if (h == null || h.isEmpty() || !isPortOpen(h, 5555, 600)) continue;
+            try {
+                String out = runShellCommandOutput(c, h, 5555, "tail -n 3 " + UPDATE_LOG + " 2>/dev/null");
+                return out == null ? "" : out.trim();
+            } catch (Throwable ignored) {
+            }
+        }
+        return "";
+    }
+
     static boolean installApkViaAdb(Context c, File apkFile) {
         if (c == null || apkFile == null || !apkFile.exists() || apkFile.length() < 10_000) {
             return false;
@@ -1300,15 +1317,20 @@ final class LocalAdb {
                 } catch (Throwable ignored) {
                 }
                 String newAcc = buildCleanAccessibilityServicesList(c, existingAcc);
-                String installCmd = "(chmod 644 " + remoteTmp + " 2>/dev/null; "
-                        + "sleep 2; "
-                        + "pm install -r -d -g " + remoteTmp + " || pm install -r -g " + remoteTmp + " || pm install -r " + remoteTmp + "; "
-                        + "rm -f " + remoteTmp + " /sdcard/Download/tvos-update.apk 2>/dev/null; "
-                        + "appops set " + pkg + " ACCESS_RESTRICTED_SETTINGS allow 2>/dev/null; "
-                        + "settings put secure enabled_accessibility_services '" + newAcc + "' 2>/dev/null; "
-                        + "settings put secure accessibility_enabled 1 2>/dev/null; "
-                        + "am start -n " + pkg + "/.MainActivity -a android.intent.action.MAIN -c android.intent.category.HOME 2>/dev/null || am start -n " + pkg + "/" + pkg + ".MainActivity 2>/dev/null"
-                        + ") </dev/null >/dev/null 2>&1 & echo STARTED";
+                // The install runs from a script started with nohup: on Android 8/9 a plain
+                // background job is killed when this ADB shell session closes, so the update
+                // silently never happened. Output goes to a log the updater reads if it fails.
+                String script = "chmod 644 " + remoteTmp + " 2>/dev/null\n"
+                        + "sleep 2\n"
+                        + "pm install -r -d -g " + remoteTmp + " || pm install -r -g " + remoteTmp + " || pm install -r " + remoteTmp + "\n"
+                        + "rm -f " + remoteTmp + " /sdcard/Download/tvos-update.apk 2>/dev/null\n"
+                        + "appops set " + pkg + " ACCESS_RESTRICTED_SETTINGS allow 2>/dev/null\n"
+                        + "settings put secure enabled_accessibility_services '" + newAcc + "' 2>/dev/null\n"
+                        + "settings put secure accessibility_enabled 1 2>/dev/null\n"
+                        + "am start -n " + pkg + "/.MainActivity -a android.intent.action.MAIN -c android.intent.category.HOME 2>/dev/null || am start -n " + pkg + "/" + pkg + ".MainActivity 2>/dev/null\n";
+                String installCmd = "cat > " + UPDATE_SCRIPT + " <<'TVOS_EOF'\n" + script + "TVOS_EOF\n"
+                        + "chmod 755 " + UPDATE_SCRIPT + "; rm -f " + UPDATE_LOG + "; "
+                        + "(nohup sh " + UPDATE_SCRIPT + " </dev/null >" + UPDATE_LOG + " 2>&1 &) ; echo STARTED";
                 String out = runShellCommandOutput(c, h, 5555, installCmd);
                 if (out != null && out.contains("STARTED")) {
                     portReachable = true;
