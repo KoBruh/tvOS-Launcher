@@ -106,6 +106,32 @@ public final class Extras {
         prefs(c).edit().putBoolean(K_CW_POSTERS, on).apply();
     }
 
+    // ------------------------------------------------------------ Night dim
+
+    private static final String K_DIM_ON = "night_dim";
+    private static final String K_DIM_PCT = "night_dim_percent";
+    /** Strongest dim allowed, so the screen can never go fully black. */
+    public static final int DIM_MIN = 5, DIM_MAX = 90, DIM_STEP = 5, DIM_DEFAULT = 40;
+
+    /** Black overlay over the whole screen (see {@link NightDim}). */
+    public static boolean isNightDimOn(Context c) {
+        return c != null && prefs(c).getBoolean(K_DIM_ON, false);
+    }
+
+    public static void setNightDimOn(Context c, boolean on) {
+        prefs(c).edit().putBoolean(K_DIM_ON, on).apply();
+    }
+
+    /** Overlay opacity in percent (DIM_MIN..DIM_MAX). */
+    public static int getNightDimPercent(Context c) {
+        int p = c == null ? DIM_DEFAULT : prefs(c).getInt(K_DIM_PCT, DIM_DEFAULT);
+        return Math.max(DIM_MIN, Math.min(DIM_MAX, p));
+    }
+
+    public static void setNightDimPercent(Context c, int pct) {
+        prefs(c).edit().putInt(K_DIM_PCT, Math.max(DIM_MIN, Math.min(DIM_MAX, pct))).apply();
+    }
+
     // ------------------------------------------------------------ Netflix button → Stremio
 
     public static boolean isNetflixRedirectOn(Context c) {

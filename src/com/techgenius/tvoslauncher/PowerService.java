@@ -320,6 +320,7 @@ public class PowerService extends AccessibilityService {
             }
         }, 1500);
         Extras.syncNetflixWatcher(this);
+        NightDim.sync(this);
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         try {
             AccessibilityServiceInfo info = getServiceInfo();
@@ -348,6 +349,7 @@ public class PowerService extends AccessibilityService {
         stopVolumeWatcher();
         stopAudioDumpVolumeWatcher();
         if (instance == this) instance = null;
+        NightDim.onServiceGone(getApplicationContext());
         return super.onUnbind(intent);
     }
 
@@ -358,6 +360,7 @@ public class PowerService extends AccessibilityService {
         stopAudioDumpVolumeWatcher();
         if (instance == this) instance = null;
         Context appCtx = getApplicationContext();
+        NightDim.onServiceGone(appCtx);
         if (LocalAdb.shouldAutoRepairAccessibility(appCtx)) {
             LocalAdb.scheduleKeepAliveRepair(appCtx, 1000L);
         }

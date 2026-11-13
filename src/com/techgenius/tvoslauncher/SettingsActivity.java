@@ -96,6 +96,8 @@ public class SettingsActivity extends Activity {
     private TextView hintView;
 
     private final List<Runnable> refreshers = new ArrayList<>();
+    /** Rows that take Left/Right to change a value in place (e.g. night dim strength). */
+    private final java.util.Map<View, java.util.function.IntConsumer> rowAdjusters = new java.util.HashMap<>();
     private static final Map<String, Bitmap> SCENE_THUMB_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
     private static final java.util.concurrent.ExecutorService THUMB_EXEC =
             java.util.concurrent.Executors.newFixedThreadPool(2);
@@ -796,6 +798,7 @@ public class SettingsActivity extends Activity {
         list.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
         list.removeAllViews();
         refreshers.clear();
+        rowAdjusters.clear();
         showStatusMsg(null);
         mainHeadView.setText(sectionTitle(currentSection));
 
@@ -911,6 +914,29 @@ public class SettingsActivity extends Activity {
     }
 
     void pageExtras() {
+        section(en("NIGHT DIM"));
+        row(en("Dim overlay"),
+                () -> Extras.isNightDimOn(this) ? en("On") : en("Off"),
+                () -> {
+                    boolean next = !Extras.isNightDimOn(this);
+                    Extras.setNightDimOn(this, next);
+                    boolean shown = NightDim.sync(this);
+                    refreshAll();
+                    if (!next) {
+                        showStatusMsg(en("Night dim off."));
+                    } else if (!shown) {
+                        showStatusMsg(en("Turned on, but it needs the accessibility service: Settings > Button mapper > Button Mapper accessibility service."));
+                    } else {
+                        showStatusMsg(en("Night dim on. Use Left / Right on Dim strength to adjust it."));
+                    }
+                });
+        View dimRow = row(en("Dim strength"),
+                () -> "\u2039  " + Extras.getNightDimPercent(this) + "%  \u203A",
+                () -> openSubMenu("extras_dim_level"));
+        rowAdjusters.put(dimRow, dir -> {
+            setNightDimPercentLive(Extras.getNightDimPercent(this) + dir * Extras.DIM_STEP);
+        });
+        infoNote(en("A see-through black layer over everything, including Stremio and your video player. Left / Right changes the strength live, OK shows a list. Capped at 90% so the screen never goes fully black. Drawn by the Button mapper accessibility service."));
         section(en("DOCK"));
         row(en("Dock position"),
                 () -> Extras.dockPositionLabel(this, Extras.getDockPosition(this)),
@@ -2383,7 +2409,9 @@ public class SettingsActivity extends Activity {
 
     private void renderSubMenu(String subId) {
         if (subId == null) return;
-        if ("extras_dock_pos".equals(subId)) {
+        if ("extras_dim_level".equals(subId)) {
+            subMenuExtrasDimLevel();
+        } else if ("extras_dock_pos".equals(subId)) {
             subMenuExtrasDockPosition();
         } else if ("extras_single_app".equals(subId)) {
             subMenuExtrasSingleApp();
@@ -2499,6 +2527,35 @@ public class SettingsActivity extends Activity {
                 showStatusMsg(en("Dock app set to") + " " + app[0] + ".");
             });
         }
+    }
+
+    private void setNightDimPercentLive(int pct) {
+        Extras.setNightDimPercent(this, pct);
+        NightDim.sync(this);
+        refreshAll();
+        showStatusMsg(Extras.isNightDimOn(this)
+                ? en("Dim strength") + " " + Extras.getNightDimPercent(this) + "%."
+                : en("Dim strength saved. Turn Dim overlay on to see it."));
+    }
+
+    private void subMenuExtrasDimLevel() {
+        mainHeadView.setText(en("Dim strength"));
+        backSubMenuRow();
+        section(en("HOW DARK THE OVERLAY IS"));
+        int cur = Extras.getNightDimPercent(this);
+        for (int pct = 10; pct <= Extras.DIM_MAX; pct += 10) {
+            final int p = pct;
+            String sub = p <= 30 ? en("Light, takes the edge off")
+                    : p <= 60 ? en("Noticeably darker")
+                    : en("Very dark, for a black room");
+            choiceRow(p + "%", sub, cur == p, () -> {
+                Extras.setNightDimPercent(this, p);
+                NightDim.sync(this);
+                rebuildMainRows();
+                showStatusMsg(en("Dim strength") + " " + p + "%.");
+            });
+        }
+        infoNote(en("Left / Right on the Dim strength row moves in 5% steps."));
     }
 
     private void subMenuExtrasDockPosition() {
@@ -5663,6 +5720,13 @@ public class SettingsActivity extends Activity {
                     }
                 }
                 return true;
+            }
+            if (k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                java.util.function.IntConsumer adjust = rowAdjusters.get(getCurrentFocus());
+                if (adjust != null) {
+                    if (down) adjust.accept(k == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
+                    return true;
+                }
             }
             if (k == KeyEvent.KEYCODE_DPAD_LEFT) {
                 if (down) {
