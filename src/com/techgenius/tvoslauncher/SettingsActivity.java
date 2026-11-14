@@ -911,6 +911,32 @@ public class SettingsActivity extends Activity {
     }
 
     void pageExtras() {
+        section(en("SCREEN OFF (SOUND KEEPS PLAYING)"));
+        row(en("Auto screen off"),
+                () -> Extras.autoScreenOffLabel(this, Extras.getAutoScreenOffMinutes(this)),
+                () -> openSubMenu("extras_screen_off_after"));
+        row(en("Method"),
+                () -> Extras.getScreenOffMethod(this) == Extras.SCREEN_OFF_BLACK
+                        ? en("Black screen") : en("Panel off (Local ADB)"),
+                () -> {
+                    Extras.setScreenOffMethod(this,
+                            Extras.getScreenOffMethod(this) == Extras.SCREEN_OFF_BLACK
+                                    ? Extras.SCREEN_OFF_PANEL : Extras.SCREEN_OFF_BLACK);
+                    refreshAll();
+                });
+        row(en("Turn screen off now"),
+                () -> ScreenOff.lastNote().isEmpty() ? "" : en("Last time") + ": " + ScreenOff.lastNote(),
+                () -> {
+                    if (PowerService.instance == null) {
+                        showStatusMsg(en("Needs the accessibility service: Settings > Button mapper > Button Mapper accessibility service."));
+                        return;
+                    }
+                    showStatusMsg(en("Screen goes off in 3 seconds. Press any button to bring it back."));
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                        ScreenOff.turnOff(getApplicationContext());
+                    }, 3000);
+                });
+        infoNote(en("After the set time with no remote presses while sound is playing, the picture goes off but the TV stays on. Any button brings it back without pausing or moving; volume and mute work with the screen off. Panel off turns the backlight off through Local ADB (set up once in Settings > Advanced > ADB & security mode). If the picture doesn't go dark on your TV, switch Method to Black screen."));
         section(en("DOCK"));
         row(en("Dock position"),
                 () -> Extras.dockPositionLabel(this, Extras.getDockPosition(this)),
@@ -2383,7 +2409,9 @@ public class SettingsActivity extends Activity {
 
     private void renderSubMenu(String subId) {
         if (subId == null) return;
-        if ("extras_dock_pos".equals(subId)) {
+        if ("extras_screen_off_after".equals(subId)) {
+            subMenuExtrasScreenOffAfter();
+        } else if ("extras_dock_pos".equals(subId)) {
             subMenuExtrasDockPosition();
         } else if ("extras_single_app".equals(subId)) {
             subMenuExtrasSingleApp();
@@ -2497,6 +2525,26 @@ public class SettingsActivity extends Activity {
                 Extras.setSingleAppPkg(this, pkg);
                 rebuildMainRows();
                 showStatusMsg(en("Dock app set to") + " " + app[0] + ".");
+            });
+        }
+    }
+
+    private void subMenuExtrasScreenOffAfter() {
+        mainHeadView.setText(en("Auto screen off"));
+        backSubMenuRow();
+        section(en("NO REMOTE PRESSES WHILE SOUND PLAYS FOR"));
+        int cur = Extras.getAutoScreenOffMinutes(this);
+        for (int min : Extras.SCREEN_OFF_CHOICES) {
+            final int m = min;
+            String sub = m <= 0 ? en("Never turn the picture off by itself") : "";
+            choiceRow(Extras.autoScreenOffLabel(this, m), sub, cur == m, () -> {
+                Extras.setAutoScreenOffMinutes(this, m);
+                rebuildMainRows();
+                if (m > 0 && PowerService.instance == null) {
+                    showStatusMsg(en("Saved. It needs the accessibility service: Settings > Button mapper > Button Mapper accessibility service."));
+                } else {
+                    showStatusMsg(en("Auto screen off") + ": " + Extras.autoScreenOffLabel(this, m) + ".");
+                }
             });
         }
     }

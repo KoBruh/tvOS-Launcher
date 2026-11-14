@@ -320,6 +320,7 @@ public class PowerService extends AccessibilityService {
             }
         }, 1500);
         Extras.syncNetflixWatcher(this);
+        ScreenOff.sync(this);
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         try {
             AccessibilityServiceInfo info = getServiceInfo();
@@ -348,6 +349,7 @@ public class PowerService extends AccessibilityService {
         stopVolumeWatcher();
         stopAudioDumpVolumeWatcher();
         if (instance == this) instance = null;
+        ScreenOff.onServiceGone(getApplicationContext());
         return super.onUnbind(intent);
     }
 
@@ -358,6 +360,7 @@ public class PowerService extends AccessibilityService {
         stopAudioDumpVolumeWatcher();
         if (instance == this) instance = null;
         Context appCtx = getApplicationContext();
+        ScreenOff.onServiceGone(appCtx);
         if (LocalAdb.shouldAutoRepairAccessibility(appCtx)) {
             LocalAdb.scheduleKeepAliveRepair(appCtx, 1000L);
         }
@@ -954,6 +957,7 @@ public class PowerService extends AccessibilityService {
     @Override
     protected boolean onKeyEvent(KeyEvent event) {
         if (event == null) return false;
+        if (ScreenOff.onKey(this, event)) return true;
         int code = event.getKeyCode();
         if (event.getAction() == KeyEvent.ACTION_DOWN
                 && event.getRepeatCount() == 0

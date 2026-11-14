@@ -106,6 +106,37 @@ public final class Extras {
         prefs(c).edit().putBoolean(K_CW_POSTERS, on).apply();
     }
 
+    // ------------------------------------------------------------ Auto screen off
+
+    private static final String K_SO_MIN = "auto_screen_off_min";
+    private static final String K_SO_METHOD = "screen_off_method";
+    public static final int SCREEN_OFF_PANEL = 0, SCREEN_OFF_BLACK = 1;
+    public static final int[] SCREEN_OFF_CHOICES = {0, 5, 10, 15, 20, 30, 45, 60};
+
+    /** Minutes without a remote press (while sound plays) before the picture goes off; 0 = never. */
+    public static int getAutoScreenOffMinutes(Context c) {
+        return c == null ? 0 : Math.max(0, prefs(c).getInt(K_SO_MIN, 0));
+    }
+
+    public static void setAutoScreenOffMinutes(Context c, int min) {
+        prefs(c).edit().putInt(K_SO_MIN, Math.max(0, min)).apply();
+        ScreenOff.sync(c);
+    }
+
+    /** SCREEN_OFF_PANEL (backlight off through Local ADB) or SCREEN_OFF_BLACK (black overlay). */
+    public static int getScreenOffMethod(Context c) {
+        return c != null && prefs(c).getInt(K_SO_METHOD, SCREEN_OFF_PANEL) == SCREEN_OFF_BLACK
+                ? SCREEN_OFF_BLACK : SCREEN_OFF_PANEL;
+    }
+
+    public static void setScreenOffMethod(Context c, int method) {
+        prefs(c).edit().putInt(K_SO_METHOD, method).apply();
+    }
+
+    public static String autoScreenOffLabel(Context c, int min) {
+        return min <= 0 ? I18n.s(c, "Off", null) : I18n.s(c, "After", null) + " " + min + " min";
+    }
+
     // ------------------------------------------------------------ Netflix button → Stremio
 
     public static boolean isNetflixRedirectOn(Context c) {
