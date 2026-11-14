@@ -424,7 +424,6 @@ public class MainActivity extends Activity {
             return;
         }
         resumed = true;
-        NightDim.sync(this);
         activeInstance = this;
         clearLaunchDim();
         boolean wasReturningFromSettings = returningFromSettings;
