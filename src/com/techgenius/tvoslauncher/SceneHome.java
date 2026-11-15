@@ -341,7 +341,7 @@ final class SceneHome {
         topRightRow.addView(weatherBtn, wxlp);
         refreshWeatherBtn();
 
-        // Top-right Control Panel Button
+        // Top-right moon: sleep timer (Control Center lives in the Settings gear menu)
         moonBtn = new LinearLayout(host);
         moonBtn.setOrientation(LinearLayout.HORIZONTAL);
         moonBtn.setGravity(Gravity.CENTER);
@@ -355,7 +355,7 @@ final class SceneHome {
         moonBtn.setLongClickable(true);
 
         moonIcon = new ImageView(host);
-        moonIcon.setImageBitmap(Glyphs.get("controls", dp(19), 0xFFF4F4F6));
+        moonIcon.setImageBitmap(Glyphs.get("moon", dp(19), 0xFFF4F4F6));
         moonBtn.addView(moonIcon, new LinearLayout.LayoutParams(dp(19), dp(19)));
 
         moonText = new TextView(host);
@@ -384,9 +384,9 @@ final class SceneHome {
                 overlay.post(this::syncDashboardIfFocusChanged);
             }
         });
-        moonBtn.setOnClickListener(v -> host.showControlCenter());
+        moonBtn.setOnClickListener(v -> showSleepSheet());
         moonBtn.setOnLongClickListener(v -> {
-            host.showControlCenter();
+            showSleepSheet();
             return true;
         });
 
@@ -403,10 +403,14 @@ final class SceneHome {
         overlay.addView(topRightRow, trlp);
     }
 
-    /** Top-right corner: only the profile pill is left there (when there are 2+ people). */
+    /** Top-right corner: the sleep timer moon, or the profile pill (when there are 2+ people). */
     private void focusTopBar() {
-        if (whoBar != null && whoBar.getVisibility() == View.VISIBLE) whoBar.requestFocus();
+        if (moonBtn != null && moonBtn.getVisibility() == View.VISIBLE) moonBtn.requestFocus();
+        else if (whoBar != null && whoBar.getVisibility() == View.VISIBLE) whoBar.requestFocus();
     }
+
+    /** Keeps the moon's time left counting down while the sleep timer runs. */
+    private final Runnable moonTick = this::refreshMoonBtn;
 
     void refreshWhoBar() {
         if (whoBar == null) return;
@@ -444,7 +448,6 @@ final class SceneHome {
         if (weatherBtn == null) return;
         // Weather is a dock tile now; the top-right button stays hidden.
         weatherBtn.setVisibility(View.GONE);
-        if (moonBtn != null) moonBtn.setVisibility(View.GONE);
     }
 
     void refreshMoonBtn() {
@@ -460,8 +463,9 @@ final class SceneHome {
             moonBtn.setPadding(dp(11.5f), 0, dp(11.5f), 0);
         }
         moonBtn.setMinimumWidth(mSize);
-        // Control Center is a dock tile now; the top-right button stays hidden.
-        moonBtn.setVisibility(View.GONE);
+        moonBtn.setVisibility(View.VISIBLE);
+        moonBtn.removeCallbacks(moonTick);
+        if (left > 0) moonBtn.postDelayed(moonTick, 30_000L);
     }
 
     // ---------------------------------------------------------------- Keep Watching Glass Shelf
@@ -2965,7 +2969,7 @@ final class SceneHome {
                 if (down) {
                     if (f == whoBar) {
                         if (wxVisible) weatherBtn.requestFocus();
-                        else focusTopBar();
+                        else if (moonBtn != null && moonBtn.getVisibility() == View.VISIBLE) moonBtn.requestFocus();
                     } else if (f == weatherBtn) {
                         focusTopBar();
                     } else if (dockPos == Extras.DOCK_RIGHT) {

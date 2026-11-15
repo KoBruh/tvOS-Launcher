@@ -1171,6 +1171,8 @@ public final class ControlPanelOverlay {
 
     public static void cycleSleepTimer(Context c) {
         SleepReceiver.setTimer(c, SleepReceiver.nextStep(c));
+        MainActivity home = MainActivity.activeInstance;
+        if (home != null && home.sceneHome != null) home.sceneHome.refreshMoonBtn();
     }
 
     // ---------------------------------------------------------------- Custom Control Panel Actions & Visibility
