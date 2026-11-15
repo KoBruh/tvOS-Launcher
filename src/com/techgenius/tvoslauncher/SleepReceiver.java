@@ -38,6 +38,31 @@ public class SleepReceiver extends BroadcastReceiver {
         if (minutes > 0) am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending(c));
     }
 
+    /** Sleep timer choices in minutes: 15 to 60, then every 30 minutes up to 5 hours. */
+    static final int[] STEPS = {15, 30, 45, 60, 90, 120, 150, 180, 210, 240, 270, 300};
+
+    /** "45 min", "2 h", "2 h 30 min". */
+    static String duration(Context c, int minutes) {
+        if (minutes < 60) return minutes + I18n.s(c, " min", " dk");
+        int h = minutes / 60, m = minutes % 60;
+        return h + I18n.s(c, " h", " sa") + (m > 0 ? " " + m + I18n.s(c, " min", " dk") : "");
+    }
+
+    /** Short form for buttons: "45m", "2h", "2h 30m". */
+    static String compact(Context c, int minutes) {
+        if (minutes < 60) return minutes + I18n.s(c, "m", " dk");
+        int h = minutes / 60, m = minutes % 60;
+        return h + I18n.s(c, "h", " sa") + (m > 0 ? " " + m + I18n.s(c, "m", " dk") : "");
+    }
+
+    /** Next step for a "press to cycle" button: Off, 15 min ... 5 h, Off. */
+    static int nextStep(Context c) {
+        int left = timerLeft(c);
+        if (left <= 0) return STEPS[0];
+        for (int st : STEPS) if (st > left + 1) return st;
+        return 0;
+    }
+
     /** Minutes left on the sleep timer, or 0 when off. */
     static int timerLeft(Context c) {
         long at = c.getSharedPreferences("controls", Context.MODE_PRIVATE).getLong("sleep_at", 0);

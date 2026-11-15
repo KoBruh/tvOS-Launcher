@@ -111,7 +111,8 @@ public final class Extras {
     private static final String K_SO_MIN = "auto_screen_off_min";
     private static final String K_SO_METHOD = "screen_off_method";
     public static final int SCREEN_OFF_PANEL = 0, SCREEN_OFF_BLACK = 1;
-    public static final int[] SCREEN_OFF_CHOICES = {0, 5, 10, 15, 20, 30, 45, 60};
+    public static final int[] SCREEN_OFF_CHOICES =
+            {0, 5, 10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 210, 240, 270, 300};
 
     /** Minutes without a remote press (while sound plays) before the picture goes off; 0 = never. */
     public static int getAutoScreenOffMinutes(Context c) {
@@ -134,7 +135,7 @@ public final class Extras {
     }
 
     public static String autoScreenOffLabel(Context c, int min) {
-        return min <= 0 ? I18n.s(c, "Off", null) : I18n.s(c, "After", null) + " " + min + " min";
+        return min <= 0 ? I18n.s(c, "Off", null) : I18n.s(c, "After", null) + " " + SleepReceiver.duration(c, min);
     }
 
     // ------------------------------------------------------------ Netflix button → Stremio

@@ -4516,19 +4516,12 @@ public class MainActivity extends Activity {
 
     String timerState() {
         int left = SleepReceiver.timerLeft(this);
-        return left > 0 ? left + I18n.s(this, " min left", " dk kaldı") : I18n.s(this, "Off", "Kapalı");
+        return left > 0 ? SleepReceiver.duration(this, left) + I18n.s(this, " left", " kaldı") : I18n.s(this, "Off", "Kapalı");
     }
 
-    /** Off \u2192 15 \u2192 30 \u2192 60 \u2192 90 \u2192 Off. */
+    /** Off, 15, 30, 45, 60 min, then every 30 min up to 5 h, then Off (SleepReceiver.STEPS). */
     void cycleSleepTimer() {
-        int left = SleepReceiver.timerLeft(this);
-        int[] steps = {15, 30, 60, 90};
-        int next = steps[0];
-        if (left > 0) {
-            next = 0;
-            for (int st : steps) if (st > left + 1) { next = st; break; }
-        }
-        SleepReceiver.setTimer(this, next);
+        SleepReceiver.setTimer(this, SleepReceiver.nextStep(this));
         if (sceneHome != null) sceneHome.refreshMoonBtn();
     }
 

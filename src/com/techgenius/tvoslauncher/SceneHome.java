@@ -452,7 +452,7 @@ final class SceneHome {
         int left = SleepReceiver.timerLeft(host);
         int mSize = dp(42);
         if (left > 0) {
-            moonText.setText(left + I18n.s(host, "m", " dk"));
+            moonText.setText(SleepReceiver.compact(host, left));
             moonText.setVisibility(View.VISIBLE);
             moonBtn.setPadding(dp(13), 0, dp(14), 0);
         } else {
@@ -2509,7 +2509,7 @@ final class SceneHome {
                 "controls",
                 I18n.s(host, "Control Center", "Denetim Merkezi"),
                 sleepLeft > 0
-                        ? I18n.s(host, "Sleep timer: ", "Uyku zamanlayıcısı: ") + sleepLeft + I18n.s(host, " min left", " dk kaldı")
+                        ? I18n.s(host, "Sleep timer: ", "Uyku zamanlayıcısı: ") + SleepReceiver.duration(host, sleepLeft) + I18n.s(host, " left", " kaldı")
                         : I18n.s(host, "Sleep timer, inputs, picture and quick toggles", "Uyku zamanlayıcısı, girişler, görüntü ve hızlı ayarlar"),
                 () -> {
                     closeSheetImmediate();
@@ -2719,7 +2719,7 @@ final class SceneHome {
         hSub.setTextColor(0xB3F4F4F6);
         int curLeft = SleepReceiver.timerLeft(host);
         hSub.setText(curLeft > 0
-                ? I18n.s(host, "Off in " + curLeft + " min", curLeft + " dk içinde kapanacak")
+                ? I18n.s(host, "Off in ", "") + SleepReceiver.duration(host, curLeft) + I18n.s(host, "", " içinde kapanacak")
                 : I18n.s(host, "Turn the TV off after", "TV'yi şu süreden sonra kapat:"));
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -2727,12 +2727,17 @@ final class SceneHome {
         slp.bottomMargin = dp(12);
         card.addView(hSub, slp);
 
+        // Two rows: Off to 90 min, then 2 h to 5 h in 30 min steps.
         LinearLayout pillsRow = new LinearLayout(host);
         pillsRow.setOrientation(LinearLayout.HORIZONTAL);
-        int[] mins = {0, 15, 30, 45, 60, 90, 120};
+        LinearLayout pillsRow2 = new LinearLayout(host);
+        pillsRow2.setOrientation(LinearLayout.HORIZONTAL);
+        int[] mins = new int[SleepReceiver.STEPS.length + 1];
+        System.arraycopy(SleepReceiver.STEPS, 0, mins, 1, SleepReceiver.STEPS.length);
         View firstFocus = null;
         for (int i = 0; i < mins.length; i++) {
             final int m = mins[i];
+            LinearLayout targetRow = m <= 90 ? pillsRow : pillsRow2;
             TextView pill = new TextView(host);
             Ui.textSize(pill, 11.5f);
             pill.setTypeface(Ui.font(host, "semibold"));
@@ -2742,7 +2747,7 @@ final class SceneHome {
             pill.setClickable(true);
             pill.setText(m == 0
                     ? I18n.s(host, "Off", "Kapalı")
-                    : m + I18n.s(host, " min", " dk"));
+                    : m < 60 ? m + I18n.s(host, " min", " dk") : SleepReceiver.compact(host, m));
             GradientDrawable pbg = new GradientDrawable();
             pbg.setCornerRadius(dp(11));
             pbg.setColor(0x18FFFFFF);
@@ -2761,13 +2766,17 @@ final class SceneHome {
             });
             LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            if (i > 0) plp.leftMargin = dp(6);
-            pillsRow.addView(pill, plp);
+            if (targetRow.getChildCount() > 0) plp.leftMargin = dp(6);
+            targetRow.addView(pill, plp);
             if ((curLeft == 0 && m == 0) || (curLeft > 0 && m >= curLeft && firstFocus == null)) {
                 firstFocus = pill;
             }
         }
         card.addView(pillsRow);
+        LinearLayout.LayoutParams row2lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        row2lp.topMargin = dp(8);
+        card.addView(pillsRow2, row2lp);
 
         // Quick shortcuts row below Sleep Timer pills: Control Center, Search, Weather
         LinearLayout quickRow = new LinearLayout(host);

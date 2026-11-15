@@ -1166,23 +1166,11 @@ public final class ControlPanelOverlay {
 
     public static String timerState(Context c) {
         int left = SleepReceiver.timerLeft(c);
-        return left > 0 ? left + I18n.s(c, " min left", " dk kaldı") : I18n.s(c, "Off", "Kapalı");
+        return left > 0 ? SleepReceiver.duration(c, left) + I18n.s(c, " left", " kaldı") : I18n.s(c, "Off", "Kapalı");
     }
 
     public static void cycleSleepTimer(Context c) {
-        int left = SleepReceiver.timerLeft(c);
-        int[] steps = {15, 30, 60, 90};
-        int next = steps[0];
-        if (left > 0) {
-            next = 0;
-            for (int st : steps) {
-                if (st > left + 1) {
-                    next = st;
-                    break;
-                }
-            }
-        }
-        SleepReceiver.setTimer(c, next);
+        SleepReceiver.setTimer(c, SleepReceiver.nextStep(c));
     }
 
     // ---------------------------------------------------------------- Custom Control Panel Actions & Visibility
