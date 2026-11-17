@@ -96,6 +96,8 @@ public class SettingsActivity extends Activity {
     private TextView hintView;
 
     private final List<Runnable> refreshers = new ArrayList<>();
+    /** Rows that take Left/Right to change a value in place (e.g. night dim strength). */
+    private final java.util.Map<View, java.util.function.IntConsumer> rowAdjusters = new java.util.HashMap<>();
     private static final Map<String, Bitmap> SCENE_THUMB_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
     private static final java.util.concurrent.ExecutorService THUMB_EXEC =
             java.util.concurrent.Executors.newFixedThreadPool(2);
@@ -796,6 +798,7 @@ public class SettingsActivity extends Activity {
         list.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
         list.removeAllViews();
         refreshers.clear();
+        rowAdjusters.clear();
         showStatusMsg(null);
         mainHeadView.setText(sectionTitle(currentSection));
 
@@ -911,17 +914,34 @@ public class SettingsActivity extends Activity {
     }
 
     void pageExtras() {
+        section(en("BRIGHTNESS"));
+        View brightRow = row(en("Brightness"),
+                () -> "\u2039  " + Extras.getBrightnessPercent(this) + "%  \u203A",
+                () -> {
+                    Extras.setBrightnessPercent(this, 100);
+                    refreshAll();
+                    showStatusMsg(en("Brightness back to 100%."));
+                });
+        rowAdjusters.put(brightRow, dir -> {
+            Extras.setBrightnessPercent(this, Math.max(100 - Extras.DIM_MAX,
+                    Math.min(100, Extras.getBrightnessPercent(this) + dir)));
+            refreshAll();
+        });
+        infoNote(en("Left / Right changes it 1% at a time (hold to move fast); OK resets to 100%. Below 100% a black layer covers everything, Stremio and the player included. Also on the moon button. Needs the Button mapper accessibility service."));
         section(en("SCREEN OFF (SOUND KEEPS PLAYING)"));
         row(en("Auto screen off"),
                 () -> Extras.autoScreenOffLabel(this, Extras.getAutoScreenOffMinutes(this)),
                 () -> openSubMenu("extras_screen_off_after"));
         row(en("Method"),
-                () -> Extras.getScreenOffMethod(this) == Extras.SCREEN_OFF_BLACK
-                        ? en("Black screen") : en("Panel off (Local ADB)"),
                 () -> {
-                    Extras.setScreenOffMethod(this,
-                            Extras.getScreenOffMethod(this) == Extras.SCREEN_OFF_BLACK
-                                    ? Extras.SCREEN_OFF_PANEL : Extras.SCREEN_OFF_BLACK);
+                    int m = Extras.getScreenOffMethod(this);
+                    return m == Extras.SCREEN_OFF_TCL ? en("TCL Audio only")
+                            : m == Extras.SCREEN_OFF_PANEL ? en("Panel off (Local ADB)") : en("Black screen");
+                },
+                () -> {
+                    int m = Extras.getScreenOffMethod(this);
+                    Extras.setScreenOffMethod(this, m == Extras.SCREEN_OFF_TCL ? Extras.SCREEN_OFF_PANEL
+                            : m == Extras.SCREEN_OFF_PANEL ? Extras.SCREEN_OFF_BLACK : Extras.SCREEN_OFF_TCL);
                     refreshAll();
                 });
         row(en("Turn screen off now"),
@@ -936,7 +956,10 @@ public class SettingsActivity extends Activity {
                         ScreenOff.turnOff(getApplicationContext());
                     }, 3000);
                 });
-        infoNote(en("After the set time with no remote presses while sound is playing, the picture goes off but the TV stays on. Any button brings it back without pausing or moving; volume and mute work with the screen off. Panel off turns the backlight off through Local ADB (set up once in Settings > Advanced > ADB & security mode). If the picture doesn't go dark on your TV, switch Method to Black screen."));
+        row(en("Audio only menu log"),
+                () -> TclAudioOnly.lastLog(this).isEmpty() ? en("Nothing yet") : "",
+                () -> openSubMenu("extras_tcl_log"));
+        infoNote(en("After the set time with no remote presses while sound is playing, the picture goes off but the TV stays on. TCL Audio only opens the TV's own Settings > Sound > Audio only for you (needs Local ADB, set up in Settings > Advanced > ADB & security mode); any button brings the picture back. If it can't find the option, the menu log shows what it saw. Panel off and Black screen are the older ways."));
         section(en("DOCK"));
         row(en("Dock position"),
                 () -> Extras.dockPositionLabel(this, Extras.getDockPosition(this)),
@@ -2409,7 +2432,9 @@ public class SettingsActivity extends Activity {
 
     private void renderSubMenu(String subId) {
         if (subId == null) return;
-        if ("extras_screen_off_after".equals(subId)) {
+        if ("extras_tcl_log".equals(subId)) {
+            subMenuExtrasTclLog();
+        } else if ("extras_screen_off_after".equals(subId)) {
             subMenuExtrasScreenOffAfter();
         } else if ("extras_dock_pos".equals(subId)) {
             subMenuExtrasDockPosition();
@@ -2526,6 +2551,25 @@ public class SettingsActivity extends Activity {
                 rebuildMainRows();
                 showStatusMsg(en("Dock app set to") + " " + app[0] + ".");
             });
+        }
+    }
+
+    private void subMenuExtrasTclLog() {
+        mainHeadView.setText(en("Audio only menu log"));
+        backSubMenuRow();
+        section(en("WHAT THE LAST TRY SAW ON EACH SCREEN"));
+        String log = TclAudioOnly.lastLog(this);
+        if (log.isEmpty()) {
+            infoNote(en("Nothing yet. Use Turn screen off now with Method set to TCL Audio only."));
+            return;
+        }
+        for (String line : log.split("\n")) {
+            if (line.trim().isEmpty()) continue;
+            infoNote(line);
+            // Focusable so Up / Down scrolls through a long log; the focused line turns white.
+            TextView t = (TextView) list.getChildAt(list.getChildCount() - 1);
+            t.setFocusable(true);
+            t.setOnFocusChangeListener((v, has) -> ((TextView) v).setTextColor(has ? 0xFFFFFFFF : 0x88FFFFFF));
         }
     }
 
@@ -5711,6 +5755,13 @@ public class SettingsActivity extends Activity {
                     }
                 }
                 return true;
+            }
+            if (k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                java.util.function.IntConsumer adjust = rowAdjusters.get(getCurrentFocus());
+                if (adjust != null) {
+                    if (down) adjust.accept(k == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
+                    return true;
+                }
             }
             if (k == KeyEvent.KEYCODE_DPAD_LEFT) {
                 if (down) {

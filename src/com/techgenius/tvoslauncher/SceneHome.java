@@ -2790,6 +2790,8 @@ final class SceneHome {
         qrlp.topMargin = dp(12);
         card.addView(quickRow, qrlp);
 
+        card.addView(makeBrightnessSlider(), indexAfter(card, pillsRow2));
+
         View ccShortcut = makeQuickChip(I18n.s(host, "Control Center", "Denetim Merkezi"), () -> {
             closeSheet();
             host.showControlCenter();
@@ -2821,6 +2823,93 @@ final class SceneHome {
         card.animate().scaleX(1f).scaleY(1f).setDuration(220).setInterpolator(MainActivity.LIFT).start();
         if (firstFocus != null) firstFocus.requestFocus();
         else if (pillsRow.getChildCount() > 0) pillsRow.getChildAt(0).requestFocus();
+    }
+
+    private static int indexAfter(ViewGroup parent, View child) {
+        return parent.indexOfChild(child) + 1;
+    }
+
+    /**
+     * Brightness slider for the moon sheet: Left / Right in 1% steps (hold to move fast), drawn as
+     * a black overlay (EXTRAS ! > Brightness, see NightDim). OK resets to 100%.
+     */
+    private View makeBrightnessSlider() {
+        LinearLayout row = new LinearLayout(host);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(9), dp(12), dp(9));
+        row.setFocusable(true);
+        row.setClickable(true);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(11));
+        bg.setColor(0x18FFFFFF);
+        row.setBackground(bg);
+
+        TextView name = new TextView(host);
+        Ui.textSize(name, 11.5f);
+        name.setTypeface(Ui.font(host, "semibold"));
+        name.setTextColor(0xFFF4F4F6);
+        name.setText(I18n.s(host, "Brightness", "Parlaklık"));
+        row.addView(name);
+
+        FrameLayout track = new FrameLayout(host);
+        GradientDrawable trackBg = new GradientDrawable();
+        trackBg.setCornerRadius(dp(3));
+        trackBg.setColor(0x33FFFFFF);
+        track.setBackground(trackBg);
+        View fill = new View(host);
+        GradientDrawable fillBg = new GradientDrawable();
+        fillBg.setCornerRadius(dp(3));
+        fillBg.setColor(0xFFF4F4F6);
+        fill.setBackground(fillBg);
+        final int trackW = dp(220);
+        track.addView(fill, new FrameLayout.LayoutParams(trackW, ViewGroup.LayoutParams.MATCH_PARENT));
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(trackW, dp(6));
+        tlp.leftMargin = dp(14);
+        tlp.rightMargin = dp(12);
+        row.addView(track, tlp);
+
+        TextView value = new TextView(host);
+        Ui.textSize(value, 11.5f);
+        value.setTypeface(Ui.font(host, "semibold"));
+        value.setTextColor(0xFFF4F4F6);
+        value.setMinWidth(dp(40));
+        value.setGravity(Gravity.END);
+        row.addView(value);
+
+        Runnable show = () -> {
+            int b = Extras.getBrightnessPercent(host);
+            value.setText(b + "%");
+            ViewGroup.LayoutParams flp = fill.getLayoutParams();
+            flp.width = Math.max(dp(6), Math.round(trackW * b / 100f));
+            fill.setLayoutParams(flp);
+        };
+        show.run();
+
+        row.setOnKeyListener((v, keyCode, ev) -> {
+            if (keyCode != KeyEvent.KEYCODE_DPAD_LEFT && keyCode != KeyEvent.KEYCODE_DPAD_RIGHT) return false;
+            if (ev.getAction() == KeyEvent.ACTION_DOWN) {
+                int b = Extras.getBrightnessPercent(host) + (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
+                Extras.setBrightnessPercent(host, Math.max(100 - Extras.DIM_MAX, Math.min(100, b)));
+                show.run();
+            }
+            return true;
+        });
+        row.setOnClickListener(v -> {
+            Extras.setBrightnessPercent(host, 100);
+            show.run();
+        });
+        row.setOnFocusChangeListener((v, has) -> {
+            bg.setColor(has ? 0x40FFFFFF : 0x18FFFFFF);
+            v.animate().scaleX(has ? 1.03f : 1f).scaleY(has ? 1.03f : 1f)
+                    .setDuration(150).setInterpolator(MainActivity.LIFT).start();
+        });
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(12);
+        row.setLayoutParams(lp);
+        return row;
     }
 
     private View makeQuickChip(String label, Runnable onClick) {

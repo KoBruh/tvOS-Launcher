@@ -110,7 +110,7 @@ public final class Extras {
 
     private static final String K_SO_MIN = "auto_screen_off_min";
     private static final String K_SO_METHOD = "screen_off_method";
-    public static final int SCREEN_OFF_PANEL = 0, SCREEN_OFF_BLACK = 1;
+    public static final int SCREEN_OFF_PANEL = 0, SCREEN_OFF_BLACK = 1, SCREEN_OFF_TCL = 2;
     public static final int[] SCREEN_OFF_CHOICES =
             {0, 5, 10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 210, 240, 270, 300};
 
@@ -124,10 +124,13 @@ public final class Extras {
         ScreenOff.sync(c);
     }
 
-    /** SCREEN_OFF_PANEL (backlight off through Local ADB) or SCREEN_OFF_BLACK (black overlay). */
+    /**
+     * SCREEN_OFF_TCL (the TV's own Sound > Audio only, the default), SCREEN_OFF_PANEL (display
+     * power off through Local ADB) or SCREEN_OFF_BLACK (black overlay).
+     */
     public static int getScreenOffMethod(Context c) {
-        return c != null && prefs(c).getInt(K_SO_METHOD, SCREEN_OFF_PANEL) == SCREEN_OFF_BLACK
-                ? SCREEN_OFF_BLACK : SCREEN_OFF_PANEL;
+        int m = c == null ? SCREEN_OFF_TCL : prefs(c).getInt(K_SO_METHOD, SCREEN_OFF_TCL);
+        return m == SCREEN_OFF_PANEL || m == SCREEN_OFF_BLACK ? m : SCREEN_OFF_TCL;
     }
 
     public static void setScreenOffMethod(Context c, int method) {
@@ -136,6 +139,37 @@ public final class Extras {
 
     public static String autoScreenOffLabel(Context c, int min) {
         return min <= 0 ? I18n.s(c, "Off", null) : I18n.s(c, "After", null) + " " + SleepReceiver.duration(c, min);
+    }
+
+    // ------------------------------------------------------------ Brightness (black overlay)
+
+    private static final String K_DIM_PCT = "dim_overlay_percent";
+    /** Darkest the overlay goes, so the menus always stay readable. */
+    public static final int DIM_MAX = 95;
+
+    /** Overlay opacity in percent, 0 (off) to DIM_MAX. Brightness shown to the user = 100 - this. */
+    public static int getNightDimPercent(Context c) {
+        int p = c == null ? 0 : prefs(c).getInt(K_DIM_PCT, 0);
+        return Math.max(0, Math.min(DIM_MAX, p));
+    }
+
+    public static boolean isNightDimOn(Context c) {
+        return getNightDimPercent(c) > 0;
+    }
+
+    /** Saves and applies right away (main thread). */
+    public static void setNightDimPercent(Context c, int pct) {
+        prefs(c).edit().putInt(K_DIM_PCT, Math.max(0, Math.min(DIM_MAX, pct))).apply();
+        NightDim.sync(c);
+    }
+
+    public static int getBrightnessPercent(Context c) {
+        return 100 - getNightDimPercent(c);
+    }
+
+    /** Brightness 5..100 %, in steps of 1. */
+    public static void setBrightnessPercent(Context c, int pct) {
+        setNightDimPercent(c, 100 - pct);
     }
 
     // ------------------------------------------------------------ Netflix button → Stremio

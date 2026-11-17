@@ -41,6 +41,8 @@ final class ScreenOff {
     private static Handler worker;
 
     private static volatile boolean off;
+    /** TCL Audio only is (probably) on: don't start it again until the next remote press. */
+    private static volatile boolean tclAudioOnly;
     private static long offSinceMs;
     private static volatile long lastKeyMs = SystemClock.uptimeMillis();
     private static int swallowUpCode = -1;
@@ -74,7 +76,8 @@ final class ScreenOff {
             int min = Extras.getAutoScreenOffMinutes(svc);
             if (min <= 0) return;
             long idle = SystemClock.uptimeMillis() - lastKeyMs;
-            if (!off && idle >= min * 60_000L && isSoundPlaying(svc) && isInteractive(svc)) {
+            if (!off && !tclAudioOnly && !TclAudioOnly.isRunning()
+                    && idle >= min * 60_000L && isSoundPlaying(svc) && isInteractive(svc)) {
                 turnOff(svc);
             }
             MAIN.postDelayed(this, CHECK_MS);
@@ -108,7 +111,11 @@ final class ScreenOff {
         int action = ev.getAction();
         long now = SystemClock.uptimeMillis();
         if (!off) {
-            if (action == KeyEvent.ACTION_DOWN) lastKeyMs = now;
+            // Our own injected menu keys arrive here too while the walker runs; ignore those.
+            if (action == KeyEvent.ACTION_DOWN && !TclAudioOnly.isRunning()) {
+                lastKeyMs = now;
+                tclAudioOnly = false;
+            }
             if (action == KeyEvent.ACTION_UP && code == swallowUpCode) {
                 swallowUpCode = -1;
                 return true;
@@ -150,6 +157,21 @@ final class ScreenOff {
         try {
             ControlPanelOverlay.dismiss();
         } catch (Throwable ignored) { }
+        if (Extras.getScreenOffMethod(c) == Extras.SCREEN_OFF_TCL) {
+            // The TV handles Audio only itself, including waking on any button, so keys aren't
+            // intercepted here; only the idle check pauses until the next press.
+            off = false;
+            tclAudioOnly = true;
+            lastNote = I18n.s(c, "TCL Audio only: opening the menu…", null);
+            final Context tclApp = c.getApplicationContext();
+            TclAudioOnly.start(svc, ok -> {
+                if (!ok) tclAudioOnly = false;
+                worker().post(() -> closeAdbPortIfWeOpenedIt(tclApp));
+                lastNote = ok ? I18n.s(svc, "TCL Audio only", null)
+                        : I18n.s(svc, "TCL Audio only not found (see the menu log)", null);
+            });
+            return true;
+        }
         if (Extras.getScreenOffMethod(c) == Extras.SCREEN_OFF_BLACK) {
             lastNote = I18n.s(c, "Black screen", null);
             showBlack(svc);
@@ -223,11 +245,14 @@ final class ScreenOff {
         closeAdbPortIfWeOpenedIt(app);
     }
 
-    // Worker thread.
-    private static boolean runDisplayPower(Context app, String arg) {
+    /**
+     * Runs a shell command through Local ADB, opening the ADB port first if Secure mode closed it.
+     * Returns the output, or null if ADB can't be reached. Worker thread only.
+     */
+    static String adbShell(Context app, String cmd) {
         try {
             if (!LocalAdb.isPortOpen("127.0.0.1", 5555, 400)) {
-                if (!LocalAdb.hasWriteSecureSettings(app)) return false;
+                if (!LocalAdb.hasWriteSecureSettings(app)) return null;
                 Settings.Global.putInt(app.getContentResolver(), Settings.Global.ADB_ENABLED, 1);
                 openedAdbPort = true;
                 boolean open = false;
@@ -235,20 +260,27 @@ final class ScreenOff {
                     SystemClock.sleep(300);
                     open = LocalAdb.isPortOpen("127.0.0.1", 5555, 300);
                 }
-                if (!open) return false;
+                if (!open) return null;
             }
-            String apk = app.getApplicationInfo().sourceDir;
-            String out = LocalAdb.execShellOutput(app, "CLASSPATH=" + apk
-                    + " app_process /system/bin " + DisplayPowerMain.class.getName() + " " + arg);
-            if (out != null && out.contains("OK")) return true;
-            android.util.Log.w("tvOSLauncher", "Display power " + arg + " failed: " + out);
+            String out = LocalAdb.execShellOutput(app, cmd);
+            return out == null ? null : out;
         } catch (Throwable t) {
-            android.util.Log.w("tvOSLauncher", "Display power " + arg + " failed: " + t);
+            android.util.Log.w("tvOSLauncher", "ADB shell failed: " + t);
+            return null;
         }
+    }
+
+    // Worker thread.
+    private static boolean runDisplayPower(Context app, String arg) {
+        String apk = app.getApplicationInfo().sourceDir;
+        String out = adbShell(app, "CLASSPATH=" + apk
+                + " app_process /system/bin " + DisplayPowerMain.class.getName() + " " + arg);
+        if (out != null && out.contains("OK")) return true;
+        android.util.Log.w("tvOSLauncher", "Display power " + arg + " failed: " + out);
         return false;
     }
 
-    private static synchronized Handler worker() {
+    static synchronized Handler worker() {
         if (worker == null) {
             HandlerThread t = new HandlerThread("screen-off");
             t.start();
