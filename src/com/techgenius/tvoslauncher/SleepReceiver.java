@@ -7,8 +7,8 @@ import android.content.Context;
 import android.content.Intent;
 
 /**
- * Sleep support for Control Center: Power Off and the Sleep Timer turn the TV screen off
- * through ControlPanelOverlay.showScreenOff() or AccessibilityService sleep.
+ * Sleep support for Control Center. The Sleep Timer ends with ScreenOff (picture off, sound on);
+ * Power Off goes through ControlPanelOverlay.showScreenOff() or AccessibilityService sleep.
  */
 public class SleepReceiver extends BroadcastReceiver {
 
@@ -73,6 +73,9 @@ public class SleepReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context c, Intent i) {
         c.getSharedPreferences("controls", Context.MODE_PRIVATE).edit().putLong("sleep_at", 0).apply();
+        // Timer end: picture off, sound keeps playing, using EXTRAS ! > Screen off > Method
+        // (TCL Audio only by default). The old black Screen Off only if that can't run.
+        if (ScreenOff.turnOff(c)) return;
         sleepNow(c);
     }
 }
